@@ -1,0 +1,875 @@
+openapi: 3.1.0
+info:
+  title: AsisConexión Backend API
+  version: 1.0.0
+  description: >-
+    Contrato OpenAPI-First (SDD) del Monolito Modular AsisConexión Backend.
+    Opera con persistencia dual PostgreSQL (ASISCONEXION_DB + FOUNDATION_GLOBAL_DB)
+    e integración HTTP activa con el servicio central de autenticación en Render.
+servers:
+  - url: http://localhost:3000
+    description: Servidor de desarrollo local
+tags:
+  - name: AuthSession
+    description: Registro híbrido con Render, sincronización con BD General y sesiones por dispositivo
+  - name: Social
+    description: Categorías de foros, publicaciones aprobadas, creación en PENDING, comentarios y reacciones
+  - name: Moderation
+    description: Cola de moderación humana obligatoria (RN-02) exclusiva para rol ADMIN
+  - name: Directory
+    description: Enlaces limpios hacia módulos satélites (SUMA 21, AULA UP, SAGA-UP)
+  - name: Assistant
+    description: Orientación FAQ Fase 1 con disclaimer y escalamiento humano a WhatsApp
+
+components:
+  securitySchemes:
+    DeviceSessionBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token JWT local emitido por AsisConexión (`device_token`) validado por `DeviceSessionGuard`.
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+
+  schemas:
+    ProblemDetails:
+      type: object
+      description: Estándar RFC 7807 (application/problem+json) emitido por AllExceptionsFilter.
+      required: [type, title, status, detail, instance, timestamp]
+      properties:
+        type:
+          type: string
+          format: uri
+          example: https://asisconexion.org/problems/conflict
+        title:
+          type: string
+          example: Conflict
+        status:
+          type: integer
+          example: 409
+        detail:
+          type: string
+          example: El username o email ya se encuentra registrado en el ecosistema fundacional.
+        instance:
+          type: string
+          example: /v1/auth/registro
+        timestamp:
+          type: string
+          format: date-time
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    PaginationMetaDto:
+      type: object
+      required: [page, limit, total_items, total_pages, has_next_page]
+      properties:
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 20
+        total_items:
+          type: integer
+          example: 42
+        total_pages:
+          type: integer
+          example: 3
+        has_next_page:
+          type: boolean
+          example: true
+
+    RegisterUserDto:
+      type: object
+      required: [username, email, clave, rol, accept_consent]
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 80
+          example: maria.acudiente
+        email:
+          type: string
+          format: email
+          maxLength: 120
+          example: maria@prueba.com
+        clave:
+          type: string
+          minLength: 8
+          maxLength: 128
+          writeOnly: true
+          example: ClaveAcudiente2026
+        rol:
+          type: string
+          maxLength: 40
+          enum: [ACUDIENTE, VOLUNTARIO, INVERSOR, BENEFICIARIO, ADMIN]
+          example: ACUDIENTE
+        accept_consent:
+          type: boolean
+          const: true
+          description: Aceptación obligatoria Ley 1581 de 2012 y Ley 1098 de 2006.
+          example: true
+
+    SyncSessionDto:
+      type: object
+      required: [identifier, clave, accept_consent]
+      additionalProperties: false
+      properties:
+        identifier:
+          type: string
+          maxLength: 120
+          description: Username o email registrado en el ecosistema general fundacional.
+          example: maria.acudiente
+        clave:
+          type: string
+          minLength: 8
+          maxLength: 128
+          writeOnly: true
+          example: ClaveAcudiente2026
+        accept_consent:
+          type: boolean
+          const: true
+          example: true
+
+    PublicUserDto:
+      type: object
+      description: DTO público segregado (ISP) — jamás incluye clave ni tokens internos.
+      required: [id, username, email, rol]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+          example: maria.acudiente
+        email:
+          type: string
+          format: email
+          example: maria@prueba.com
+        rol:
+          type: string
+          example: ACUDIENTE
+
+    AuthSessionResponseDto:
+      type: object
+      required: [user, device_token, synced_with_global_db]
+      properties:
+        user:
+          $ref: '#/components/schemas/PublicUserDto'
+        device_token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        synced_with_global_db:
+          type: boolean
+          example: true
+
+    InitAnonymousSessionDto:
+      type: object
+      required: [accept_consent]
+      additionalProperties: false
+      properties:
+        nickname:
+          type: string
+          maxLength: 50
+          example: MamáDeMateo
+        role_tag:
+          type: string
+          maxLength: 40
+          example: ACUDIENTE
+        accept_consent:
+          type: boolean
+          const: true
+          example: true
+
+    AnonymousSessionResponseDto:
+      type: object
+      required: [device_token, session_id]
+      properties:
+        device_token:
+          type: string
+        session_id:
+          type: string
+          format: uuid
+
+    CategoryItemDto:
+      type: object
+      required: [id, name, description]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Apoyo Pedagógico
+        description:
+          type: string
+          example: Espacio para compartir experiencias educativas y acompañamiento familiar.
+
+    AuthorBadgeDto:
+      type: object
+      required: [display_name, role_label, is_registered]
+      properties:
+        display_name:
+          type: string
+          example: maria.acudiente
+        role_label:
+          type: string
+          example: ACUDIENTE
+        is_registered:
+          type: boolean
+          example: true
+
+    ApprovedCommentItemDto:
+      type: object
+      required: [id, content, author, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        content:
+          type: string
+        author:
+          $ref: '#/components/schemas/AuthorBadgeDto'
+        created_at:
+          type: string
+          format: date-time
+
+    PublicPostItemDto:
+      type: object
+      required: [id, category_id, content, author, reactions_summary, comments_count, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        content:
+          type: string
+        image_url:
+          type: [string, 'null']
+          format: uri
+        author:
+          $ref: '#/components/schemas/AuthorBadgeDto'
+        reactions_summary:
+          type: object
+          required: [LIKE, SUPPORT, THANKS]
+          properties:
+            LIKE:
+              type: integer
+            SUPPORT:
+              type: integer
+            THANKS:
+              type: integer
+        comments_count:
+          type: integer
+        recent_comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovedCommentItemDto'
+        created_at:
+          type: string
+          format: date-time
+
+    CreatePostDto:
+      type: object
+      required: [category_id, content]
+      additionalProperties: false
+      properties:
+        category_id:
+          type: string
+          format: uuid
+        content:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        image_url:
+          type: string
+          format: uri
+          maxLength: 500
+
+    PendingSubmissionResponseDto:
+      type: object
+      required: [id, status, message, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [PENDING]
+          example: PENDING
+        message:
+          type: string
+          example: Contenido recibido y enviado a moderación humana antes de su publicación.
+        created_at:
+          type: string
+          format: date-time
+
+    CreateCommentDto:
+      type: object
+      required: [content]
+      additionalProperties: false
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 1000
+
+    ToggleReactionDto:
+      type: object
+      required: [type]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [LIKE, SUPPORT, THANKS]
+          example: SUPPORT
+
+    ToggleReactionResponseDto:
+      type: object
+      required: [post_id, type, active]
+      properties:
+        post_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [LIKE, SUPPORT, THANKS]
+        active:
+          type: boolean
+          description: true si la reacción quedó activa; false si fue retirada.
+
+    ModerationPendingItemDto:
+      type: object
+      required: [id, item_type, content, status, device_id, author, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        item_type:
+          type: string
+          enum: [POST, COMMENT]
+        post_id:
+          type: [string, 'null']
+          format: uuid
+        category_id:
+          type: [string, 'null']
+          format: uuid
+        content:
+          type: string
+        image_url:
+          type: [string, 'null']
+        status:
+          type: string
+          enum: [PENDING]
+        device_id:
+          type: string
+          format: uuid
+        user_account_id:
+          type: [string, 'null']
+          format: uuid
+        author:
+          $ref: '#/components/schemas/AuthorBadgeDto'
+        created_at:
+          type: string
+          format: date-time
+
+    UpdateModerationStatusDto:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [APPROVED, REJECTED]
+          example: APPROVED
+
+    ModerationStatusUpdatedDto:
+      type: object
+      required: [id, item_type, status, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        item_type:
+          type: string
+          enum: [POST, COMMENT]
+        status:
+          type: string
+          enum: [APPROVED, REJECTED]
+        updated_at:
+          type: string
+          format: date-time
+
+    RedirectionLinkItemDto:
+      type: object
+      required: [id, project_name, url, description]
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_name:
+          type: string
+          example: SUMA 21
+        url:
+          type: string
+          format: uri
+          example: https://suma21.fundacionasisco.org
+        description:
+          type: string
+          example: Plataforma de inclusión y formación integral.
+
+    FaqItemDto:
+      type: object
+      required: [id, question, answer, category]
+      properties:
+        id:
+          type: string
+          format: uuid
+        question:
+          type: string
+        answer:
+          type: string
+        category:
+          type: string
+          example: Inscripciones
+
+    EscalateRequestDto:
+      type: object
+      additionalProperties: false
+      properties:
+        topic:
+          type: string
+          maxLength: 120
+          example: Orientación sobre matrícula AULA UP
+
+    EscalateResponseDto:
+      type: object
+      required: [whatsapp_url, support_message]
+      properties:
+        whatsapp_url:
+          type: string
+          format: uri
+          example: https://wa.me/573000000000?text=Hola%20Fundaci%C3%B3n%20Asisco
+        support_message:
+          type: string
+          example: Serás redirigido de forma nativa al canal humano oficial en WhatsApp.
+
+paths:
+  /v1/auth/registro:
+    post:
+      tags: [AuthSession]
+      summary: Registra usuario en Render, sincroniza UserAccount local y emite DeviceSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterUserDto'
+      responses:
+        '201':
+          description: Usuario registrado, persistido en ASISCONEXION_DB y sesión emitida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponseDto'
+        '400':
+          description: Datos inválidos o consentimiento no aceptado
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          description: Conflicto — usuario o email ya registrado en Render / BD Propia
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '502':
+          description: Servicio central de Render no disponible o fallo de pasarela
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+  /v1/auth/sync-session:
+    post:
+      tags: [AuthSession]
+      summary: Autentica/verifica usuario existente en BD General/Render y sincroniza sesión local
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncSessionDto'
+      responses:
+        '200':
+          description: Cuenta sincronizada en ASISCONEXION_DB y device_token emitido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponseDto'
+        '401':
+          description: Credenciales inválidas o cuenta inactiva
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '502':
+          description: Indisponibilidad en verificación externa
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+  /v1/sessions/anonymous:
+    post:
+      tags: [AuthSession]
+      summary: Inicia sesión rápida por dispositivo sin registro de cuenta completa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InitAnonymousSessionDto'
+      responses:
+        '201':
+          description: DeviceSession anónima creada con trazabilidad de consentimiento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnonymousSessionResponseDto'
+        '400':
+          description: Consentimiento Ley 1581 no aceptado o payload inválido
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+  /v1/categories:
+    get:
+      tags: [Social]
+      summary: Lista categorías temáticas de los foros (paginado ligero RT-01)
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Página de categorías
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CategoryItemDto'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMetaDto'
+
+  /v1/posts:
+    get:
+      tags: [Social]
+      summary: Lista exclusivamente publicaciones con status = APPROVED (RT-01, RN-02)
+      parameters:
+        - name: categoryId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Página ligera de publicaciones aprobadas
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PublicPostItemDto'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMetaDto'
+    post:
+      tags: [Social]
+      summary: Crea publicación forzando status = PENDING (RN-02)
+      security:
+        - DeviceSessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePostDto'
+      responses:
+        '201':
+          description: Publicación creada en cola de moderación humana (PENDING)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingSubmissionResponseDto'
+        '401':
+          description: DeviceSession ausente o inválida
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+  /v1/posts/{postId}/comments:
+    post:
+      tags: [Social]
+      summary: Crea comentario forzando status = PENDING sobre publicación aprobada
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentDto'
+      responses:
+        '201':
+          description: Comentario registrado en estado PENDING
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingSubmissionResponseDto'
+        '404':
+          description: Publicación no encontrada o no aprobada
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+  /v1/posts/{postId}/reactions:
+    post:
+      tags: [Social]
+      summary: Registra o elimina (toggle) una reacción rápida (LIKE, SUPPORT, THANKS)
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ToggleReactionDto'
+      responses:
+        '200':
+          description: Estado resultante de la reacción para el dispositivo actual
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToggleReactionResponseDto'
+
+  /v1/admin/moderation/pending:
+    get:
+      tags: [Moderation]
+      summary: Lista publicaciones y comentarios en estado PENDING (Solo ADMIN verificado)
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [POST, COMMENT]
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Cola paginada de moderación
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModerationPendingItemDto'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMetaDto'
+        '403':
+          description: Acceso denegado — requiere rol ADMIN activo en UserAccount y BD General
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+  /v1/admin/moderation/posts/{id}/status:
+    patch:
+      tags: [Moderation]
+      summary: Aprueba (APPROVED) o rechaza (REJECTED) una publicación
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateModerationStatusDto'
+      responses:
+        '200':
+          description: Estado de publicación actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModerationStatusUpdatedDto'
+
+  /v1/admin/moderation/comments/{id}/status:
+    patch:
+      tags: [Moderation]
+      summary: Aprueba (APPROVED) o rechaza (REJECTED) un comentario
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateModerationStatusDto'
+      responses:
+        '200':
+          description: Estado de comentario actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModerationStatusUpdatedDto'
+
+  /v1/directory/links:
+    get:
+      tags: [Directory]
+      summary: Lista enlaces activos a módulos satélites para apertura externa nativa
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Enlaces activos del directorio
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RedirectionLinkItemDto'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMetaDto'
+
+  /v1/assistant/faqs:
+    get:
+      tags: [Assistant]
+      summary: Lista preguntas frecuentes (Fase 1) e incluye disclaimer obligatorio
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Respuestas FAQ y disclaimer informativo
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [disclaimer, data, meta]
+                properties:
+                  disclaimer:
+                    type: string
+                    example: >-
+                      Esta orientación automatizada es de carácter informativo y no reemplaza la
+                      atención profesional o administrativa directa de la Fundación Asisco.
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FaqItemDto'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMetaDto'
+
+  /v1/assistant/escalate:
+    post:
+      tags: [Assistant]
+      summary: Genera enlace directo a WhatsApp para atención humana sin superposición
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EscalateRequestDto'
+      responses:
+        '200':
+          description: URL limpia hacia WhatsApp oficial
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EscalateResponseDto'
