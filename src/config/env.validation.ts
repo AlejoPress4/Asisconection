@@ -16,7 +16,7 @@ import {
 } from 'class-validator';
 
 export type NodeEnv = 'development' | 'production' | 'test';
-export type AssistantEngineMode = 'faq' | 'rag';
+export type AssistantEngineMode = 'faq';
 
 export class EnvironmentVariables {
   @IsInt()
@@ -35,11 +35,6 @@ export class EnvironmentVariables {
   DB_LOCAL_URL!: string;
 
   @ValidateIf((env: EnvironmentVariables) => !env.USE_MOCK_EXTERNAL_SERVICES)
-  @IsString()
-  @IsNotEmpty()
-  DB_GLOBAL_URL?: string;
-
-  @ValidateIf((env: EnvironmentVariables) => !env.USE_MOCK_EXTERNAL_SERVICES)
   @IsUrl({ require_tld: false, require_protocol: true })
   RENDER_API_URL?: string;
 
@@ -50,6 +45,10 @@ export class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   RENDER_LOGIN_PATH: string = '/auth/login';
+
+  @IsString()
+  @IsNotEmpty()
+  RENDER_PROFILE_PATH: string = '/auth/perfil';
 
   @IsInt()
   @Min(500)
@@ -64,6 +63,16 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   JWT_EXPIRES_IN: string = '30d';
 
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  ANON_MAX_POSTS_PER_DAY: number = 3;
+
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  ANON_MAX_COMMENTS_PER_DAY: number = 10;
+
   @IsString()
   @Matches(/^\d{7,15}$/, {
     message: 'WHATSAPP_SUPPORT_PHONE debe contener únicamente dígitos (7 a 15 caracteres).',
@@ -75,7 +84,7 @@ export class EnvironmentVariables {
   WHATSAPP_DEFAULT_MESSAGE: string =
     'Hola Fundación Asisco, requiero acompañamiento humano desde AsisConexión.';
 
-  @IsIn(['faq', 'rag'])
+  @IsIn(['faq'])
   ASSISTANT_ENGINE: AssistantEngineMode = 'faq';
 
   @IsOptional()
@@ -128,13 +137,15 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
     NODE_ENV: parseStringEnv(config['NODE_ENV'], 'development'),
     USE_MOCK_EXTERNAL_SERVICES: parseBooleanEnv(config['USE_MOCK_EXTERNAL_SERVICES'], false),
     DB_LOCAL_URL: parseStringEnv(config['DB_LOCAL_URL']),
-    DB_GLOBAL_URL: parseStringEnv(config['DB_GLOBAL_URL']),
     RENDER_API_URL: renderUrl,
     RENDER_REGISTER_PATH: parseStringEnv(config['RENDER_REGISTER_PATH'], '/auth/registro'),
     RENDER_LOGIN_PATH: parseStringEnv(config['RENDER_LOGIN_PATH'], '/auth/login'),
+    RENDER_PROFILE_PATH: parseStringEnv(config['RENDER_PROFILE_PATH'], '/auth/perfil'),
     RENDER_HTTP_TIMEOUT_MS: parseIntEnv(config['RENDER_HTTP_TIMEOUT_MS'], 5000),
     JWT_SECRET: parseStringEnv(config['JWT_SECRET']),
     JWT_EXPIRES_IN: parseStringEnv(config['JWT_EXPIRES_IN'], '30d'),
+    ANON_MAX_POSTS_PER_DAY: parseIntEnv(config['ANON_MAX_POSTS_PER_DAY'], 3),
+    ANON_MAX_COMMENTS_PER_DAY: parseIntEnv(config['ANON_MAX_COMMENTS_PER_DAY'], 10),
     WHATSAPP_SUPPORT_PHONE: parseStringEnv(config['WHATSAPP_SUPPORT_PHONE']),
     WHATSAPP_DEFAULT_MESSAGE: parseStringEnv(
       config['WHATSAPP_DEFAULT_MESSAGE'],

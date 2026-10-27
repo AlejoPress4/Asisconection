@@ -22,29 +22,29 @@
 
 **Primary Dependencies**: [e.g., NestJS, TypeORM, `@nestjs/swagger`, `@nestjs/axios`, `class-validator`, `class-transformer` or NEEDS CLARIFICATION]
 
-**Storage**: [Dual PostgreSQL (`ASISCONEXION_DB` primary + `FOUNDATION_GLOBAL_DB` read/cross-check) + HTTP integration with `RENDER_AUTH_API_URL` or N/A]
+**Storage**: [Single PostgreSQL (`ASISCONEXION_DB` with UUIDs) + HTTP integration with `RENDER_AUTH_API_URL` (`IExternalAuthAdapter`) or N/A]
 
-**Testing**: [e.g., Jest + Supertest with LSP-compliant `Mocks` for Render/DB adapters or NEEDS CLARIFICATION]
+**Testing**: [e.g., Jest + Supertest with LSP-compliant `Mocks` for `IExternalAuthAdapter`/DB repositories or NEEDS CLARIFICATION]
 
 **Target Platform**: [e.g., Linux server / container serving Web and entry-level mobile clients or NEEDS CLARIFICATION]
 
 **Project Type**: [Monolito Modular en NestJS (`web-service`) or NEEDS CLARIFICATION]
 
-**Performance Goals**: [RT-01: Mandatory pagination on all list endpoints and lightweight JSON payloads for entry-level mobile & Web]
+**Performance Goals**: [RT-01: Mandatory pagination on all list endpoints, media via URLs only, and lightweight JSON payloads for entry-level mobile & Web]
 
-**Constraints**: [RFC 7807 error format via `ExceptionFilters`, RN-02 human moderation (`PENDING` -> `APPROVED`), Ley 1581/1098 `consent_accepted_at`, zero exposure of `clave`/internal tokens]
+**Constraints**: [RFC 7807 error format via `ExceptionFilters`, two-layer moderation (`ContentFilterService` auto-filter + RN-02 human moderation `PENDING` -> `APPROVED` by `ADMIN`/`MODERATOR`), Ley 1581/1098 `consent_accepted_at`, zero exposure of `clave`/internal tokens]
 
-**Scale/Scope**: [domain-specific, e.g., modules impacted (`Auth`, `Social`, `Directory`, `AssistantModule`) or NEEDS CLARIFICATION]
+**Scale/Scope**: [domain-specific, e.g., modules impacted (`Auth`, `Actors`, `Social`, `Moderation`, `Directory`, `AssistantModule`) or NEEDS CLARIFICATION]
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 - [ ] **I. Monolito Modular & SDD OpenAPI-First**: Los contratos DTO y decoradores `@nestjs/swagger` están especificados antes de codificar lógica de negocio y respetan límites modulares en NestJS + TypeScript.
-- [ ] **II. Persistencia Dual & Consistencia con Render**: Se delimitan las responsabilidades entre `RENDER_AUTH_API_URL` (`@nestjs/axios`), `FOUNDATION_GLOBAL_DB` (lectura/verificación) y `ASISCONEXION_DB` (persistencia principal), garantizando persistencia local antes de emitir tokens de sesión.
-- [ ] **III–V. Principios SOLID (`SRP`, `OCP`, `LSP`, `ISP`, `DIP`)**: Capas separadas (`*.controller.ts`, `*.service.ts`, `*.adapter.ts`, `*.repository.ts`), interfaces inyectadas por tokens NestJS (`IExternalAuthAdapter`/`IRenderAuthClient`, `IUserSyncRepository`, `IAssistantEngineProvider`) sustituibles por `Mocks`, `AssistantModule` extensible (`FaqRuleEngineProvider` -> `RagMultimodalProvider`), y DTOs segregados sin exponer `clave` ni tokens internos.
-- [ ] **Clean Code, RFC 7807 & Rendimiento (RT-01)**: Prohibición total de `any`, validación con `class-validator`/`class-transformer`, `ExceptionFilters` devolviendo RFC 7807 (`BadGatewayException`/`ConflictException` ante fallos de Render) y paginación obligatoria con JSON ligero en listados.
-- [ ] **Seguridad, Moderación (RN-02) & Cumplimiento Legal (Colombia)**: Todo `Post` y `Comment` se crea con `status = 'PENDING'` y solo se expone `status = 'APPROVED'`; registro obligatorio de `consent_accepted_at` (Ley 1581 de 2012 y Ley 1098) en sesiones e imágenes de menores/beneficiarios.
+- [ ] **II. Persistencia Única & Servicio Central de Identidad (HTTP)**: Se opera exclusivamente sobre `ASISCONEXION_DB` y `RENDER_AUTH_API_URL` (`@nestjs/axios` vía `IExternalAuthAdapter`), garantizando persistencia local (`UserAccount`, `Actor`, `DeviceSession`) antes de emitir tokens de sesión local.
+- [ ] **III–V. Principios SOLID (`SRP`, `OCP`, `LSP`, `ISP`, `DIP`)**: Capas separadas (`*.controller.ts`, `*.service.ts`, `*.adapter.ts`, `*.repository.ts`), interfaces inyectadas por tokens NestJS (`IExternalAuthAdapter`, `IUserSyncRepository`, `IAssistantEngineProvider`, `IContentRule`) sustituibles por `Mocks`, `AssistantModule` y `ContentFilterService` extensibles por interfaz, y DTOs segregados sin exponer `clave` ni tokens internos.
+- [ ] **Clean Code, RFC 7807 & Rendimiento (RT-01)**: Prohibición total de `any`, validación con `class-validator`/`class-transformer`, `ExceptionFilters` devolviendo RFC 7807 (`401`/`409`/`502` ante respuestas o fallos de Render) y paginación obligatoria con JSON ligero y URLs multimedia en listados.
+- [ ] **Seguridad, Moderación en Dos Capas (RN-02) & Cumplimiento Legal (Colombia)**: Todo `Post` y `Comment` se evalúa con `ContentFilterService` (`REJECTED` si infringe, `PENDING` si pasa) y solo se expone `status = 'APPROVED'`; soporte de roles `ADMIN` y `MODERATOR`; registro obligatorio de `consent_accepted_at` (Ley 1581 de 2012 y Ley 1098).
 
 ## Project Structure
 

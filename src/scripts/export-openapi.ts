@@ -1,4 +1,3 @@
-import '../common/types/express';
 import { mkdirSync, writeFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { Module } from '@nestjs/common';
@@ -16,19 +15,22 @@ import { AssistantService } from '../modules/assistant/assistant.service';
 import { ASSISTANT_ENGINE_PROVIDER } from '../modules/assistant/interfaces/i-assistant-engine.provider';
 import { FAQ_KNOWLEDGE_REPOSITORY } from '../modules/assistant/interfaces/i-faq-knowledge.repository';
 import { FaqRuleEngineProvider } from '../modules/assistant/providers/faq-rule-engine.provider';
+import { ActorsController } from '../modules/auth-session/actors.controller';
+import { ActorsService } from '../modules/auth-session/actors.service';
+import { RenderAuthMockAdapter } from '../modules/auth-session/adapters/render-auth.mock-adapter';
 import { AuthSessionController } from '../modules/auth-session/auth-session.controller';
 import { AuthSessionService } from '../modules/auth-session/auth-session.service';
-import { RenderAuthMockAdapter } from '../modules/auth-session/adapters/render-auth.mock-adapter';
-import { GLOBAL_USER_REPOSITORY } from '../modules/auth-session/interfaces/i-global-user.repository';
+import { ACTOR_REPOSITORY } from '../modules/auth-session/interfaces/i-actor.repository';
 import { USER_SYNC_REPOSITORY } from '../modules/auth-session/interfaces/i-local-user.repository';
 import { RENDER_AUTH_ADAPTER } from '../modules/auth-session/interfaces/i-render-auth.adapter';
-import { GlobalUserMockRepository } from '../modules/auth-session/repositories/global-user.mock-repository';
 import { DirectoryController } from '../modules/directory/directory.controller';
 import { DirectoryService } from '../modules/directory/directory.service';
 import { REDIRECTION_LINK_REPOSITORY } from '../modules/directory/interfaces/i-redirection-link.repository';
+import { ContentFilterService } from '../modules/moderation/content-filter.service';
+import { CONTENT_FILTER_RULES } from '../modules/moderation/interfaces/i-content-rule.interface';
+import { MODERATION_REPOSITORY } from '../modules/moderation/interfaces/i-moderation.repository';
 import { ModerationController } from '../modules/moderation/moderation.controller';
 import { ModerationService } from '../modules/moderation/moderation.service';
-import { MODERATION_REPOSITORY } from '../modules/moderation/interfaces/i-moderation.repository';
 import { CategoriesController } from '../modules/social/controllers/categories.controller';
 import { PostsController } from '../modules/social/controllers/posts.controller';
 import { CATEGORY_REPOSITORY } from '../modules/social/interfaces/i-category.repository';
@@ -65,6 +67,7 @@ import { PostsService } from '../modules/social/services/posts.service';
   ],
   controllers: [
     AuthSessionController,
+    ActorsController,
     CategoriesController,
     PostsController,
     ModerationController,
@@ -77,18 +80,21 @@ import { PostsService } from '../modules/social/services/posts.service';
     OptionalDeviceSessionGuard,
     RolesGuard,
     { provide: DEVICE_SESSION_READER, useValue: { findSessionContext: () => Promise.resolve(null) } },
-    { provide: GLOBAL_USER_REPOSITORY, useClass: GlobalUserMockRepository },
     { provide: RENDER_AUTH_ADAPTER, useClass: RenderAuthMockAdapter },
     { provide: USER_SYNC_REPOSITORY, useValue: {} },
+    { provide: ACTOR_REPOSITORY, useValue: {} },
     { provide: CATEGORY_REPOSITORY, useValue: {} },
     { provide: POST_REPOSITORY, useValue: {} },
     { provide: COMMENT_REPOSITORY, useValue: {} },
     { provide: REACTION_REPOSITORY, useValue: {} },
     { provide: MODERATION_REPOSITORY, useValue: {} },
+    { provide: CONTENT_FILTER_RULES, useValue: [] },
+    ContentFilterService,
     { provide: REDIRECTION_LINK_REPOSITORY, useValue: {} },
     { provide: FAQ_KNOWLEDGE_REPOSITORY, useValue: {} },
     { provide: ASSISTANT_ENGINE_PROVIDER, useClass: FaqRuleEngineProvider },
     AuthSessionService,
+    ActorsService,
     CategoriesService,
     PostsService,
     ModerationService,
@@ -105,9 +111,9 @@ async function exportOpenApiDocument(): Promise<void> {
   const swaggerConfig = new DocumentBuilder()
     .setTitle('AsisConexión Backend API')
     .setDescription(
-      'Contrato OpenAPI-First (SDD) del Monolito Modular AsisConexión Backend. Opera con persistencia dual PostgreSQL (ASISCONEXION_DB + FOUNDATION_GLOBAL_DB) e integración HTTP activa con el servicio central de autenticación en Render.',
+      'Contrato OpenAPI-First (SDD v2) del Monolito Modular AsisConexión Backend. Opera con persistencia única PostgreSQL (ASISCONEXION_DB) e integración HTTP con el servicio central de identidad en Render/Supabase.',
     )
-    .setVersion('1.0.0')
+    .setVersion('2.0.0')
     .addServer('http://localhost:3000', 'Servidor de desarrollo local')
     .addBearerAuth(
       {

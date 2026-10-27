@@ -1,6 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsNotEmpty, IsOptional, IsString, IsUrl, IsUUID, Length, MaxLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUrl,
+  IsUUID,
+  Length,
+  MaxLength,
+} from 'class-validator';
 
 export class CreatePostDto {
   @ApiProperty({ format: 'uuid' })
@@ -19,4 +29,15 @@ export class CreatePostDto {
   @IsUrl({ protocols: ['https'], require_protocol: true })
   @MaxLength(500)
   image_url?: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Arreglo de URLs multimedia HTTPS asociadas a la publicación.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsUrl({ protocols: ['https'], require_protocol: true }, { each: true })
+  @MaxLength(500, { each: true })
+  media_urls?: string[];
 }

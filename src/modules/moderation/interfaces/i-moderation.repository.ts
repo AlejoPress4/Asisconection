@@ -21,7 +21,16 @@ export interface ModerationUpdatedRecord {
   readonly id: string;
   readonly itemType: ModerationItemType;
   readonly status: AllowedModerationDecision;
+  readonly rejectionReason?: string | null;
   readonly updatedAt: Date;
+}
+
+export interface ModeratorAccountRecord {
+  readonly id: string;
+  readonly username: string;
+  readonly email: string;
+  readonly rol: string;
+  readonly localRole: string | null;
 }
 
 export interface IModerationRepository {
@@ -38,6 +47,8 @@ export interface IModerationRepository {
     id: string,
     status: AllowedModerationDecision,
   ): Promise<ModerationUpdatedRecord | null>;
+  listModerators?(): Promise<ModeratorAccountRecord[]>;
+  setLocalRole?(userAccountId: string, localRole: 'MODERATOR' | null): Promise<ModeratorAccountRecord | null>;
 }
 
 export const MODERATION_REPOSITORY = Symbol('MODERATION_REPOSITORY');

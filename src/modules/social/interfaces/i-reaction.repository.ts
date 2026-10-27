@@ -7,6 +7,12 @@ export interface IReactionRepository {
     userAccountId: string | null,
     type: ReactionType,
   ): Promise<boolean>;
+  toggleCommentReaction?(
+    commentId: string,
+    deviceId: string,
+    userAccountId: string | null,
+    type: ReactionType,
+  ): Promise<boolean>;
 }
 
 export const REACTION_REPOSITORY = Symbol('REACTION_REPOSITORY');

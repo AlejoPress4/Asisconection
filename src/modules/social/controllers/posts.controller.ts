@@ -20,6 +20,7 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import type { SessionContext } from '../../../common/auth/interfaces/session-context.interface';
@@ -31,7 +32,10 @@ import { CreatePostDto } from '../dto/create-post.dto';
 import { ListPostsQueryDto } from '../dto/list-posts-query.dto';
 import { PendingSubmissionResponseDto } from '../dto/pending-submission-response.dto';
 import { PostsPageDto } from '../dto/posts-page.dto';
-import { ToggleReactionResponseDto } from '../dto/toggle-reaction-response.dto';
+import {
+  ToggleCommentReactionResponseDto,
+  ToggleReactionResponseDto,
+} from '../dto/toggle-reaction-response.dto';
 import { ToggleReactionDto } from '../dto/toggle-reaction.dto';
 import { PostsService } from '../services/posts.service';
 
@@ -43,11 +47,11 @@ function requireSession(session: SessionContext | undefined): SessionContext {
 }
 
 @ApiTags('Social')
-@Controller('posts')
+@Controller()
 export class PostsController {
   constructor(private readonly postsService: PostsService) {}
 
-  @Get()
+  @Get('posts')
   @ApiOperation({
     summary: 'Lista exclusivamente publicaciones con status = APPROVED (RT-01, RN-02)',
   })
@@ -63,14 +67,14 @@ export class PostsController {
     return this.postsService.listApproved(query);
   }
 
-  @Post()
+  @Post('posts')
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
   @ApiOperation({
-    summary: 'Crea publicación forzando status = PENDING (RN-02)',
+    summary: 'Crea publicación evaluando filtro automático previo y cola PENDING (RN-02)',
   })
   @ApiCreatedResponse({
-    description: 'Publicación creada en cola de moderación humana (PENDING)',
+    description: 'Publicación recibida (PENDING o REJECTED por AUTO_FILTER)',
     type: PendingSubmissionResponseDto,
   })
   @ApiBadRequestResponse({
@@ -89,6 +93,10 @@ export class PostsController {
     description: 'Categoría no encontrada',
     type: ProblemDetailsDto,
   })
+  @ApiTooManyRequestsResponse({
+    description: 'Límite diario de publicaciones anónimas excedido',
+    type: ProblemDetailsDto,
+  })
   async createPost(
     @CurrentSession() session: SessionContext | undefined,
     @Body() dto: CreatePostDto,
@@ -96,14 +104,14 @@ export class PostsController {
     return this.postsService.createPost(requireSession(session), dto);
   }
 
-  @Post(':postId/comments')
+  @Post('posts/:postId/comments')
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
   @ApiOperation({
-    summary: 'Crea comentario forzando status = PENDING sobre publicación aprobada',
+    summary: 'Crea comentario o respuesta en hilo (parent_id) con filtro automático y cola PENDING',
   })
   @ApiCreatedResponse({
-    description: 'Comentario registrado en estado PENDING',
+    description: 'Comentario registrado en estado PENDING o REJECTED (AUTO_FILTER)',
     type: PendingSubmissionResponseDto,
   })
   @ApiBadRequestResponse({
@@ -118,6 +126,10 @@ export class PostsController {
     description: 'Publicación no encontrada o no aprobada',
     type: ProblemDetailsDto,
   })
+  @ApiTooManyRequestsResponse({
+    description: 'Límite diario de comentarios anónimos excedido',
+    type: ProblemDetailsDto,
+  })
   async createComment(
     @CurrentSession() session: SessionContext | undefined,
     @Param('postId', new ParseUUIDPipe()) postId: string,
@@ -126,12 +138,12 @@ export class PostsController {
     return this.postsService.createComment(requireSession(session), postId, dto);
   }
 
-  @Post(':postId/reactions')
+  @Post('posts/:postId/reactions')
   @HttpCode(HttpStatus.OK)
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
   @ApiOperation({
-    summary: 'Registra o elimina (toggle) una reacción rápida (LIKE, SUPPORT, THANKS)',
+    summary: 'Registra o elimina (toggle) una reacción rápida en publicación (LIKE, SUPPORT, THANKS)',
   })
   @ApiOkResponse({
     description: 'Estado resultante de la reacción para el dispositivo actual',
@@ -155,5 +167,24 @@ export class PostsController {
     @Body() dto: ToggleReactionDto,
   ): Promise<ToggleReactionResponseDto> {
     return this.postsService.toggleReaction(requireSession(session), postId, dto);
+  }
+
+  @Post('comments/:id/reactions')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(DeviceSessionGuard)
+  @ApiBearerAuth('DeviceSessionBearer')
+  @ApiOperation({
+    summary: 'Registra o elimina (toggle) una reacción rápida en un comentario aprobado',
+  })
+  @ApiOkResponse({
+    description: 'Estado resultante de la reacción sobre el comentario',
+    type: ToggleCommentReactionResponseDto,
+  })
+  async toggleCommentReaction(
+    @CurrentSession() session: SessionContext | undefined,
+    @Param('id', new ParseUUIDPipe()) commentId: string,
+    @Body() dto: ToggleReactionDto,
+  ): Promise<ToggleCommentReactionResponseDto> {
+    return this.postsService.toggleCommentReaction(requireSession(session), commentId, dto);
   }
 }

@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
   Patch,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -24,6 +26,7 @@ import { DeviceSessionGuard } from '../../common/guards/device-session.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ModerationPendingPageDto } from './dto/moderation-pending-page.dto';
 import { ModerationStatusUpdatedDto } from './dto/moderation-status-updated.dto';
+import { ModeratorAccountItemDto } from './dto/moderator-role.dto';
 import { PendingQueryDto } from './dto/pending-query.dto';
 import { UpdateModerationStatusDto } from './dto/update-moderation-status.dto';
 import { ModerationService } from './moderation.service';
@@ -31,14 +34,14 @@ import { ModerationService } from './moderation.service';
 @ApiTags('Moderation')
 @ApiBearerAuth('DeviceSessionBearer')
 @UseGuards(DeviceSessionGuard, RolesGuard)
-@Roles('ADMIN')
-@Controller('admin/moderation')
+@Controller('admin')
 export class ModerationController {
   constructor(private readonly moderationService: ModerationService) {}
 
-  @Get('pending')
+  @Get('moderation/pending')
+  @Roles('ADMIN', 'MODERATOR')
   @ApiOperation({
-    summary: 'Lista publicaciones y comentarios en estado PENDING (Solo ADMIN verificado)',
+    summary: 'Lista publicaciones y comentarios en estado PENDING (Abierto a ADMIN y MODERATOR)',
   })
   @ApiOkResponse({
     description: 'Cola paginada de moderación',
@@ -53,16 +56,17 @@ export class ModerationController {
     type: ProblemDetailsDto,
   })
   @ApiForbiddenResponse({
-    description: 'Acceso denegado — requiere rol ADMIN activo en UserAccount y BD General',
+    description: 'Acceso denegado — requiere rol ADMIN o MODERATOR activo',
     type: ProblemDetailsDto,
   })
   async listPending(@Query() query: PendingQueryDto): Promise<ModerationPendingPageDto> {
     return this.moderationService.listPending(query);
   }
 
-  @Patch('posts/:id/status')
+  @Patch('moderation/posts/:id/status')
+  @Roles('ADMIN', 'MODERATOR')
   @ApiOperation({
-    summary: 'Aprueba (APPROVED) o rechaza (REJECTED) una publicación',
+    summary: 'Aprueba (APPROVED) o rechaza (REJECTED con rejection_reason = HUMAN) una publicación',
   })
   @ApiOkResponse({
     description: 'Estado de publicación actualizado',
@@ -77,7 +81,7 @@ export class ModerationController {
     type: ProblemDetailsDto,
   })
   @ApiForbiddenResponse({
-    description: 'Acceso denegado — requiere rol ADMIN verificado',
+    description: 'Acceso denegado — requiere rol ADMIN o MODERATOR',
     type: ProblemDetailsDto,
   })
   @ApiNotFoundResponse({
@@ -91,9 +95,10 @@ export class ModerationController {
     return this.moderationService.updatePostStatus(id, dto);
   }
 
-  @Patch('comments/:id/status')
+  @Patch('moderation/comments/:id/status')
+  @Roles('ADMIN', 'MODERATOR')
   @ApiOperation({
-    summary: 'Aprueba (APPROVED) o rechaza (REJECTED) un comentario',
+    summary: 'Aprueba (APPROVED) o rechaza (REJECTED con rejection_reason = HUMAN) un comentario',
   })
   @ApiOkResponse({
     description: 'Estado de comentario actualizado',
@@ -108,7 +113,7 @@ export class ModerationController {
     type: ProblemDetailsDto,
   })
   @ApiForbiddenResponse({
-    description: 'Acceso denegado — requiere rol ADMIN verificado',
+    description: 'Acceso denegado — requiere rol ADMIN o MODERATOR',
     type: ProblemDetailsDto,
   })
   @ApiNotFoundResponse({
@@ -120,5 +125,57 @@ export class ModerationController {
     @Body() dto: UpdateModerationStatusDto,
   ): Promise<ModerationStatusUpdatedDto> {
     return this.moderationService.updateCommentStatus(id, dto);
+  }
+
+  @Get('moderators')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Lista usuarios registrados con rol local global MODERATOR (Exclusivo ADMIN)',
+  })
+  @ApiOkResponse({
+    type: [ModeratorAccountItemDto],
+  })
+  @ApiForbiddenResponse({
+    description: 'Acceso denegado — exclusivo para rol ADMIN',
+    type: ProblemDetailsDto,
+  })
+  async listModerators(): Promise<ModeratorAccountItemDto[]> {
+    return this.moderationService.listModerators();
+  }
+
+  @Put('moderators/:userAccountId')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Asigna el rol global local MODERATOR a un usuario registrado (Exclusivo ADMIN)',
+  })
+  @ApiOkResponse({
+    type: ModeratorAccountItemDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Acceso denegado — exclusivo para rol ADMIN',
+    type: ProblemDetailsDto,
+  })
+  async assignModerator(
+    @Param('userAccountId', new ParseUUIDPipe()) userAccountId: string,
+  ): Promise<ModeratorAccountItemDto> {
+    return this.moderationService.assignModerator(userAccountId);
+  }
+
+  @Delete('moderators/:userAccountId')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Revoca el rol global local MODERATOR de un usuario registrado (Exclusivo ADMIN)',
+  })
+  @ApiOkResponse({
+    type: ModeratorAccountItemDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Acceso denegado — exclusivo para rol ADMIN',
+    type: ProblemDetailsDto,
+  })
+  async revokeModerator(
+    @Param('userAccountId', new ParseUUIDPipe()) userAccountId: string,
+  ): Promise<ModeratorAccountItemDto> {
+    return this.moderationService.revokeModerator(userAccountId);
   }
 }

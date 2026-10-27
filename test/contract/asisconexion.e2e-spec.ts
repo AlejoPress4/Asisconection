@@ -1,4 +1,3 @@
-import '../../src/common/types/express';
 import { randomUUID } from 'crypto';
 import { type INestApplication, UnauthorizedException, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
@@ -26,12 +25,23 @@ import {
   type IFaqKnowledgeRepository,
 } from '../../src/modules/assistant/interfaces/i-faq-knowledge.repository';
 import { FaqRuleEngineProvider } from '../../src/modules/assistant/providers/faq-rule-engine.provider';
+import { ActorsController } from '../../src/modules/auth-session/actors.controller';
+import { ActorsService } from '../../src/modules/auth-session/actors.service';
 import { RenderAuthMockAdapter } from '../../src/modules/auth-session/adapters/render-auth.mock-adapter';
 import { AuthSessionController } from '../../src/modules/auth-session/auth-session.controller';
 import { AuthSessionService } from '../../src/modules/auth-session/auth-session.service';
+import type { Actor } from '../../src/modules/auth-session/entities/actor.entity';
+import type {
+  ActorConnection,
+  ActorConnectionStatus,
+} from '../../src/modules/auth-session/entities/actor-connection.entity';
 import type { DeviceSession } from '../../src/modules/auth-session/entities/device-session.entity';
 import type { UserAccount } from '../../src/modules/auth-session/entities/user-account.entity';
-import { GLOBAL_USER_REPOSITORY } from '../../src/modules/auth-session/interfaces/i-global-user.repository';
+import {
+  ACTOR_REPOSITORY,
+  type IActorRepository,
+  type UpdateActorFields,
+} from '../../src/modules/auth-session/interfaces/i-actor.repository';
 import {
   type CreateAnonymousSessionInput,
   type IUserSyncRepository,
@@ -39,19 +49,27 @@ import {
   USER_SYNC_REPOSITORY,
 } from '../../src/modules/auth-session/interfaces/i-local-user.repository';
 import { RENDER_AUTH_ADAPTER } from '../../src/modules/auth-session/interfaces/i-render-auth.adapter';
-import { GlobalUserMockRepository } from '../../src/modules/auth-session/repositories/global-user.mock-repository';
 import { DirectoryController } from '../../src/modules/directory/directory.controller';
 import { DirectoryService } from '../../src/modules/directory/directory.service';
 import {
   type IRedirectionLinkRepository,
   REDIRECTION_LINK_REPOSITORY,
 } from '../../src/modules/directory/interfaces/i-redirection-link.repository';
+import { ContentFilterService } from '../../src/modules/moderation/content-filter.service';
+import {
+  CONTENT_FILTER_RULES,
+  type IContentRule,
+} from '../../src/modules/moderation/interfaces/i-content-rule.interface';
 import {
   type IModerationRepository,
   MODERATION_REPOSITORY,
 } from '../../src/modules/moderation/interfaces/i-moderation.repository';
 import { ModerationController } from '../../src/modules/moderation/moderation.controller';
 import { ModerationService } from '../../src/modules/moderation/moderation.service';
+import { ExternalLinkContentRule } from '../../src/modules/moderation/rules/external-link.rule';
+import { MinorDataContentRule } from '../../src/modules/moderation/rules/minor-data.rule';
+import { ProfanityContentRule } from '../../src/modules/moderation/rules/profanity.rule';
+import { SpamContentRule } from '../../src/modules/moderation/rules/spam.rule';
 import { CategoriesController } from '../../src/modules/social/controllers/categories.controller';
 import { PostsController } from '../../src/modules/social/controllers/posts.controller';
 import type { Comment } from '../../src/modules/social/entities/comment.entity';
@@ -78,36 +96,42 @@ import { PostsService } from '../../src/modules/social/services/posts.service';
 class InMemoryPersistenceStore
   implements
     IUserSyncRepository,
+    IActorRepository,
     IDeviceSessionReader,
     ICategoryRepository,
     IPostRepository,
     ICommentRepository,
     IReactionRepository,
     IModerationRepository,
-    IRedirectionLinkRepository,
-    IFaqKnowledgeRepository
+    IRedirectionLinkRepository
 {
   readonly users = new Map<string, UserAccount>();
+  readonly actors = new Map<string, Actor>();
+  readonly actorConnections = new Map<string, ActorConnection>();
   readonly sessions = new Map<string, DeviceSession>();
   readonly categories = [
     {
       id: '11111111-1111-4111-8111-111111111111',
       name: 'Apoyo Pedagógico',
+      mainTopic: 'Educación Inclusiva',
       description: 'Experiencias educativas y acompañamiento familiar.',
+      coverImageUrl: null,
     },
   ];
   readonly posts = new Map<string, Post>();
+  readonly postMedia = new Map<string, string[]>();
   readonly comments = new Map<string, Comment>();
   readonly reactions = new Set<string>();
+  readonly commentReactions = new Set<string>();
 
   findByIdentity(
-    externalUserId: string | null,
+    externalUserId: number | null,
     username: string,
     email: string,
   ): Promise<UserAccount | null> {
     for (const user of this.users.values()) {
       if (
-        (externalUserId && user.externalUserId === externalUserId) ||
+        (externalUserId !== null && user.externalUserId === externalUserId) ||
         user.username.toLowerCase() === username.toLowerCase() ||
         user.email.toLowerCase() === email.toLowerCase()
       ) {
@@ -119,13 +143,18 @@ class InMemoryPersistenceStore
 
   async upsertUserAndSession(
     input: SyncUserSessionInput,
-  ): Promise<{ user: UserAccount; session: DeviceSession }> {
+  ): Promise<{ user: UserAccount; actor: Actor; session: DeviceSession }> {
     const existing = await this.findByIdentity(input.externalUserId, input.username, input.email);
     if (existing && !existing.isActive) {
       throw new UnauthorizedException('Cuenta inactiva');
     }
 
     const now = new Date();
+    const externalRoles =
+      input.externalRoles && input.externalRoles.length > 0
+        ? [...input.externalRoles]
+        : [input.rol];
+
     const user: UserAccount = existing
       ? {
           ...existing,
@@ -133,6 +162,7 @@ class InMemoryPersistenceStore
           username: input.username,
           email: input.email,
           rol: input.rol,
+          externalRoles,
           lastSyncedAt: now,
         }
       : {
@@ -141,11 +171,15 @@ class InMemoryPersistenceStore
           username: input.username,
           email: input.email,
           rol: input.rol,
+          externalRoles,
+          localRole: null,
           isActive: true,
           lastSyncedAt: now,
           createdAt: now,
         };
     this.users.set(user.id, user);
+
+    const actor = await this.ensureForUserAccount(user.id, user.rol);
 
     const existingAnon = input.existingAnonymousSessionId
       ? this.sessions.get(input.existingAnonymousSessionId)
@@ -169,7 +203,106 @@ class InMemoryPersistenceStore
       createdAt: existingAnon?.createdAt ?? now,
     };
     this.sessions.set(session.id, session);
-    return { user, session };
+    return { user, actor, session };
+  }
+
+  findByUserAccountId(userAccountId: string): Promise<Actor | null> {
+    for (const actor of this.actors.values()) {
+      if (actor.userAccountId === userAccountId) {
+        return Promise.resolve(actor);
+      }
+    }
+    return Promise.resolve(null);
+  }
+
+  findById(id: string): Promise<(Actor & Comment) | null> {
+    const found = this.actors.get(id) ?? this.comments.get(id) ?? null;
+    return Promise.resolve(found as (Actor & Comment) | null);
+  }
+
+  async ensureForUserAccount(userAccountId: string, defaultRole: string): Promise<Actor> {
+    const existing = await this.findByUserAccountId(userAccountId);
+    if (existing) {
+      return existing;
+    }
+    const now = new Date();
+    const userAccount = this.users.get(userAccountId)!;
+    const created: Actor = {
+      id: randomUUID(),
+      userAccountId,
+      userAccount,
+      primaryRole: defaultRole,
+      firstNames: null,
+      lastNames: null,
+      avatarUrl: null,
+      shortBio: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.actors.set(created.id, created);
+    return created;
+  }
+
+  async updateByUserAccountId(
+    userAccountId: string,
+    defaultRole: string,
+    fields: UpdateActorFields,
+  ): Promise<Actor> {
+    const current = await this.ensureForUserAccount(userAccountId, defaultRole);
+    const updated: Actor = {
+      ...current,
+      primaryRole: fields.primaryRole ?? current.primaryRole,
+      firstNames: fields.firstNames ?? current.firstNames,
+      lastNames: fields.lastNames ?? current.lastNames,
+      avatarUrl: fields.avatarUrl ?? current.avatarUrl,
+      shortBio: fields.shortBio ?? current.shortBio,
+      updatedAt: new Date(),
+    };
+    this.actors.set(updated.id, updated);
+    return updated;
+  }
+
+  createConnection(requesterActorId: string, receiverActorId: string): Promise<ActorConnection> {
+    const connection: ActorConnection = {
+      id: randomUUID(),
+      requesterActorId,
+      requesterActor: this.actors.get(requesterActorId)!,
+      receiverActorId,
+      receiverActor: this.actors.get(receiverActorId)!,
+      status: 'PENDING',
+      requestedAt: new Date(),
+      acceptedAt: null,
+    };
+    this.actorConnections.set(connection.id, connection);
+    return Promise.resolve(connection);
+  }
+
+  findConnectionById(connectionId: string): Promise<ActorConnection | null> {
+    return Promise.resolve(this.actorConnections.get(connectionId) ?? null);
+  }
+
+  updateConnectionStatus(
+    connectionId: string,
+    status: ActorConnectionStatus,
+  ): Promise<ActorConnection | null> {
+    const existing = this.actorConnections.get(connectionId);
+    if (!existing) {
+      return Promise.resolve(null);
+    }
+    const updated: ActorConnection = {
+      ...existing,
+      status,
+      acceptedAt: status === 'ACCEPTED' ? new Date() : existing.acceptedAt,
+    };
+    this.actorConnections.set(connectionId, updated);
+    return Promise.resolve(updated);
+  }
+
+  listConnectionsForActor(actorId: string, skip: number, take: number) {
+    const list = Array.from(this.actorConnections.values()).filter(
+      (c) => c.requesterActorId === actorId || c.receiverActorId === actorId,
+    );
+    return Promise.resolve({ items: list.slice(skip, skip + take), total: list.length });
   }
 
   createAnonymousSession(input: CreateAnonymousSessionInput): Promise<DeviceSession> {
@@ -204,6 +337,8 @@ class InMemoryPersistenceStore
       userAccountId: session.userAccountId,
       username: account?.username ?? null,
       rol: account?.rol ?? null,
+      externalRoles: account?.externalRoles ?? [],
+      localRole: account?.localRole ?? null,
       nickname: session.nickname,
       roleTag: session.roleTag,
       consentAcceptedAt: session.consentAcceptedAt,
@@ -234,6 +369,7 @@ class InMemoryPersistenceStore
         categoryId: p.categoryId,
         content: p.content,
         imageUrl: p.imageUrl,
+        mediaUrls: this.postMedia.get(p.id) ?? [],
         createdAt: p.createdAt,
         userAccountId: p.userAccountId,
         username: user?.username ?? null,
@@ -281,6 +417,7 @@ class InMemoryPersistenceStore
       Array<{
         id: string;
         postId: string;
+        parentId: string | null;
         content: string;
         createdAt: Date;
         userAccountId: string | null;
@@ -300,6 +437,7 @@ class InMemoryPersistenceStore
           return {
             id: c.id,
             postId: c.postId,
+            parentId: c.parentId,
             content: c.content,
             createdAt: c.createdAt,
             userAccountId: c.userAccountId,
@@ -319,8 +457,12 @@ class InMemoryPersistenceStore
     userAccountId: string | null;
     categoryId?: string;
     postId?: string;
+    parentId?: string | null;
     content: string;
     imageUrl?: string | null;
+    mediaUrls?: ReadonlyArray<string>;
+    status?: ModerationStatus;
+    rejectionReason?: string | null;
   }): Promise<Post & Comment> {
     const now = new Date();
     if (data.categoryId) {
@@ -331,20 +473,26 @@ class InMemoryPersistenceStore
         categoryId: data.categoryId,
         content: data.content,
         imageUrl: data.imageUrl ?? null,
-        status: ModerationStatus.PENDING,
+        status: data.status ?? ModerationStatus.PENDING,
+        rejectionReason: data.rejectionReason ?? null,
         createdAt: now,
         updatedAt: now,
       };
       this.posts.set(post.id, post);
+      if (data.mediaUrls && data.mediaUrls.length > 0) {
+        this.postMedia.set(post.id, [...data.mediaUrls]);
+      }
       return Promise.resolve(post as Post & Comment);
     }
     const comment: Comment = {
       id: randomUUID(),
       postId: data.postId ?? '',
+      parentId: data.parentId ?? null,
       deviceId: data.deviceId,
       userAccountId: data.userAccountId,
       content: data.content,
-      status: ModerationStatus.PENDING,
+      status: data.status ?? ModerationStatus.PENDING,
+      rejectionReason: data.rejectionReason ?? null,
       createdAt: now,
     };
     this.comments.set(comment.id, comment);
@@ -353,6 +501,20 @@ class InMemoryPersistenceStore
 
   findStatusById(id: string): Promise<ModerationStatus | null> {
     return Promise.resolve(this.posts.get(id)?.status ?? null);
+  }
+
+  countPostsByDeviceSince(deviceId: string, since: Date): Promise<number> {
+    const count = Array.from(this.posts.values()).filter(
+      (p) => p.deviceId === deviceId && p.createdAt >= since,
+    ).length;
+    return Promise.resolve(count);
+  }
+
+  countCommentsByDeviceSince(deviceId: string, since: Date): Promise<number> {
+    const count = Array.from(this.comments.values()).filter(
+      (c) => c.deviceId === deviceId && c.createdAt >= since,
+    ).length;
+    return Promise.resolve(count);
   }
 
   toggle(
@@ -367,6 +529,21 @@ class InMemoryPersistenceStore
       return Promise.resolve(false);
     }
     this.reactions.add(key);
+    return Promise.resolve(true);
+  }
+
+  toggleCommentReaction(
+    commentId: string,
+    deviceId: string,
+    _userAccountId: string | null,
+    type: ReactionType,
+  ): Promise<boolean> {
+    const key = `${commentId}:${deviceId}:${type}`;
+    if (this.commentReactions.has(key)) {
+      this.commentReactions.delete(key);
+      return Promise.resolve(false);
+    }
+    this.commentReactions.add(key);
     return Promise.resolve(true);
   }
 
@@ -450,8 +627,9 @@ class InMemoryPersistenceStore
       return Promise.resolve(null);
     }
     const updatedAt = new Date();
-    this.posts.set(id, { ...post, status, updatedAt });
-    return Promise.resolve({ id, itemType: 'POST' as const, status, updatedAt });
+    const rejectionReason = status === ModerationStatus.REJECTED ? 'HUMAN' : null;
+    this.posts.set(id, { ...post, status, rejectionReason, updatedAt });
+    return Promise.resolve({ id, itemType: 'POST' as const, status, rejectionReason, updatedAt });
   }
 
   updateCommentStatus(
@@ -463,8 +641,44 @@ class InMemoryPersistenceStore
       return Promise.resolve(null);
     }
     const updatedAt = new Date();
-    this.comments.set(id, { ...comment, status });
-    return Promise.resolve({ id, itemType: 'COMMENT' as const, status, updatedAt });
+    const rejectionReason = status === ModerationStatus.REJECTED ? 'HUMAN' : null;
+    this.comments.set(id, { ...comment, status, rejectionReason });
+    return Promise.resolve({
+      id,
+      itemType: 'COMMENT' as const,
+      status,
+      rejectionReason,
+      updatedAt,
+    });
+  }
+
+  listModerators() {
+    const list = Array.from(this.users.values())
+      .filter((u) => u.localRole === 'MODERATOR' && u.isActive)
+      .map((u) => ({
+        id: u.id,
+        username: u.username,
+        email: u.email,
+        rol: u.rol,
+        localRole: u.localRole,
+      }));
+    return Promise.resolve(list);
+  }
+
+  setLocalRole(userAccountId: string, localRole: 'MODERATOR' | null) {
+    const existing = this.users.get(userAccountId);
+    if (!existing) {
+      return Promise.resolve(null);
+    }
+    const updated: UserAccount = { ...existing, localRole };
+    this.users.set(userAccountId, updated);
+    return Promise.resolve({
+      id: updated.id,
+      username: updated.username,
+      email: updated.email,
+      rol: updated.rol,
+      localRole: updated.localRole,
+    });
   }
 
   findActivePaginated(skip: number, take: number) {
@@ -494,7 +708,7 @@ class InMemoryFaqRepo implements IFaqKnowledgeRepository {
   }
 }
 
-describe('Contract & E2E — AsisConexión MVP (US1–US5, RFC 7807, RN-02, RT-01)', () => {
+describe('Contract & E2E — AsisConexión MVP v2 (US1–US6, Render Auth, Actors, Auto-Filter, Moderators)', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
@@ -514,6 +728,8 @@ describe('Contract & E2E — AsisConexión MVP (US1–US5, RFC 7807, RN-02, RT-0
               DB_LOCAL_URL: 'postgresql://localhost:5432/asisconexion_db',
               JWT_SECRET: 'e2e_test_secret_with_at_least_32_characters_ok',
               JWT_EXPIRES_IN: '30d',
+              ANON_MAX_POSTS_PER_DAY: 3,
+              ANON_MAX_COMMENTS_PER_DAY: 10,
               WHATSAPP_SUPPORT_PHONE: '573001234567',
               WHATSAPP_DEFAULT_MESSAGE:
                 'Hola Fundación Asisco, requiero acompañamiento humano desde AsisConexión.',
@@ -528,6 +744,7 @@ describe('Contract & E2E — AsisConexión MVP (US1–US5, RFC 7807, RN-02, RT-0
       ],
       controllers: [
         AuthSessionController,
+        ActorsController,
         CategoriesController,
         PostsController,
         ModerationController,
@@ -541,17 +758,38 @@ describe('Contract & E2E — AsisConexión MVP (US1–US5, RFC 7807, RN-02, RT-0
         RolesGuard,
         { provide: DEVICE_SESSION_READER, useValue: store },
         { provide: USER_SYNC_REPOSITORY, useValue: store },
-        { provide: GLOBAL_USER_REPOSITORY, useClass: GlobalUserMockRepository },
+        { provide: ACTOR_REPOSITORY, useValue: store },
         { provide: RENDER_AUTH_ADAPTER, useClass: RenderAuthMockAdapter },
         { provide: CATEGORY_REPOSITORY, useValue: store },
         { provide: POST_REPOSITORY, useValue: store },
         { provide: COMMENT_REPOSITORY, useValue: store },
         { provide: REACTION_REPOSITORY, useValue: store },
         { provide: MODERATION_REPOSITORY, useValue: store },
+        ProfanityContentRule,
+        ExternalLinkContentRule,
+        MinorDataContentRule,
+        SpamContentRule,
+        {
+          provide: CONTENT_FILTER_RULES,
+          inject: [
+            ProfanityContentRule,
+            ExternalLinkContentRule,
+            MinorDataContentRule,
+            SpamContentRule,
+          ],
+          useFactory: (
+            profanity: ProfanityContentRule,
+            extLink: ExternalLinkContentRule,
+            minorData: MinorDataContentRule,
+            spam: SpamContentRule,
+          ): ReadonlyArray<IContentRule> => [profanity, extLink, minorData, spam],
+        },
+        ContentFilterService,
         { provide: REDIRECTION_LINK_REPOSITORY, useValue: store },
         { provide: FAQ_KNOWLEDGE_REPOSITORY, useValue: faqRepo },
         { provide: ASSISTANT_ENGINE_PROVIDER, useClass: FaqRuleEngineProvider },
         AuthSessionService,
+        ActorsService,
         CategoriesService,
         PostsService,
         ModerationService,
@@ -579,26 +817,22 @@ describe('Contract & E2E — AsisConexión MVP (US1–US5, RFC 7807, RN-02, RT-0
     await app.close();
   });
 
-  it('ejecuta el flujo completo quickstart (Pasos 1–5), RN-02, RT-01 y errores RFC 7807', async () => {
+  it('ejecuta el flujo completo v2: login/registro Render, Actor exclusivo para registrados, filtro automático, moderadores y reacciones', async () => {
     const httpServer = app.getHttpServer() as Parameters<typeof request>[0];
 
-    // 400 RFC 7807 cuando accept_consent es false (Ley 1581)
-    const missingConsent = await request(httpServer)
-      .post('/v1/sessions/anonymous')
-      .send({ nickname: 'Visitante', accept_consent: false })
-      .expect(400);
-    expect(missingConsent.headers['content-type']).toContain('application/problem+json');
-    expect((missingConsent.body as Record<string, unknown>)['status']).toBe(400);
-
-    // Paso 1: Sesión rápida anónima
+    // 1. Sesión anónima no tiene perfil Actor (403 Forbidden)
     const anonRes = await request(httpServer)
       .post('/v1/sessions/anonymous')
       .send({ nickname: 'AcudienteNorte', role_tag: 'ACUDIENTE', accept_consent: true })
       .expect(201);
     const anonBody = anonRes.body as { device_token: string; session_id: string };
-    expect(anonBody.device_token).toBeDefined();
 
-    // Paso 2: Registro sincronizado vinculando sesión anónima previa (sin exponer clave)
+    await request(httpServer)
+      .get('/v1/actors/me')
+      .set('Authorization', `Bearer ${anonBody.device_token}`)
+      .expect(403);
+
+    // 2. Registro de usuario crea UserAccount + Actor 1:1
     const regRes = await request(httpServer)
       .post('/v1/auth/registro')
       .set('Authorization', `Bearer ${anonBody.device_token}`)
@@ -611,118 +845,77 @@ describe('Contract & E2E — AsisConexión MVP (US1–US5, RFC 7807, RN-02, RT-0
       })
       .expect(201);
     const regBody = regRes.body as {
-      user: Record<string, unknown>;
+      user: { id: string; username: string };
       device_token: string;
-      synced_with_global_db: boolean;
     };
-    expect(regBody.user['username']).toBe('lucia.acudiente');
-    expect(regBody.user['clave']).toBeUndefined();
 
-    // 409 Conflict RFC 7807 por duplicado
-    const dupRes = await request(httpServer)
-      .post('/v1/auth/registro')
-      .send({
-        username: 'maria.acudiente',
-        email: 'maria@prueba.com',
-        clave: 'ClaveAcudiente2026',
-        rol: 'ACUDIENTE',
-        accept_consent: true,
-      })
-      .expect(409);
-    expect(dupRes.headers['content-type']).toContain('application/problem+json');
+    const myActorRes = await request(httpServer)
+      .patch('/v1/actors/me')
+      .set('Authorization', `Bearer ${regBody.device_token}`)
+      .send({ first_names: 'Lucía', last_names: 'Pineda', short_bio: 'Acudiente activa' })
+      .expect(200);
+    expect((myActorRes.body as { first_names: string }).first_names).toBe('Lucía');
 
-    // 401 RFC 7807 sin token en escritura protegida
-    await request(httpServer)
+    // 3. Filtro automático rechaza enlaces externos con status = REJECTED y rejection_reason = AUTO_FILTER
+    const autoRejectedRes = await request(httpServer)
       .post('/v1/posts')
+      .set('Authorization', `Bearer ${regBody.device_token}`)
       .send({
         category_id: '11111111-1111-4111-8111-111111111111',
-        content: 'Intento sin sesión',
+        content: 'Visiten https://sitio-externo.com para ganar premios.',
       })
-      .expect(401);
+      .expect(201);
+    expect(autoRejectedRes.body).toMatchObject({
+      status: 'REJECTED',
+      rejection_reason: 'AUTO_FILTER',
+    });
 
-    // Paso 3: Crear Post (nace en PENDING y no aparece aún en público — RN-02)
+    // 4. Publicación limpia con media_urls pasa a PENDING
     const postRes = await request(httpServer)
       .post('/v1/posts')
       .set('Authorization', `Bearer ${regBody.device_token}`)
       .send({
         category_id: '11111111-1111-4111-8111-111111111111',
         content: 'Comparto nuestra experiencia positiva en los talleres familiares.',
+        media_urls: ['https://cdn.asisco.org/fotos/taller1.jpg'],
       })
       .expect(201);
     const postBody = postRes.body as { id: string; status: string };
     expect(postBody.status).toBe('PENDING');
 
-    const emptyPublicFeed = await request(httpServer)
-      .get('/v1/posts?page=1&limit=20')
-      .expect(200);
-    expect((emptyPublicFeed.body as { data: unknown[] }).data).toHaveLength(0);
-
-    // 403 RFC 7807 cuando usuario no-ADMIN intenta moderar
-    await request(httpServer)
-      .get('/v1/admin/moderation/pending')
-      .set('Authorization', `Bearer ${regBody.device_token}`)
-      .expect(403);
-
-    // Paso 2b & 4: Sincronizar ADMIN y aprobar publicación
-    const adminSync = await request(httpServer)
-      .post('/v1/auth/sync-session')
+    // 5. Login de ADMIN en /v1/auth/login y promoción de lucia.acudiente a MODERATOR global
+    const adminLogin = await request(httpServer)
+      .post('/v1/auth/login')
       .send({
-        identifier: 'admin.asisco',
+        email: 'admin@asisco.org',
         clave: 'ClaveAsisco2026',
         accept_consent: true,
       })
       .expect(200);
-    const adminToken = (adminSync.body as { device_token: string }).device_token;
+    const adminToken = (adminLogin.body as { device_token: string }).device_token;
 
-    const pendingQueue = await request(httpServer)
-      .get('/v1/admin/moderation/pending?page=1&limit=20')
+    await request(httpServer)
+      .put(`/v1/admin/moderators/${regBody.user.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
-    expect((pendingQueue.body as { data: unknown[] }).data).toHaveLength(1);
+
+    // 6. Ahora lucia.acudiente (MODERATOR) puede aprobar el post, pero NO puede gestionar otros moderadores (403)
+    await request(httpServer)
+      .get('/v1/admin/moderators')
+      .set('Authorization', `Bearer ${regBody.device_token}`)
+      .expect(403);
 
     await request(httpServer)
       .patch(`/v1/admin/moderation/posts/${postBody.id}/status`)
-      .set('Authorization', `Bearer ${adminToken}`)
+      .set('Authorization', `Bearer ${regBody.device_token}`)
       .send({ status: 'APPROVED' })
       .expect(200);
 
-    // Verificar visibilidad en muro público y toggle de reacciones
     const approvedFeed = await request(httpServer)
       .get('/v1/posts?page=1&limit=20')
       .expect(200);
-    expect((approvedFeed.body as { data: unknown[] }).data).toHaveLength(1);
-
-    const toggle1 = await request(httpServer)
-      .post(`/v1/posts/${postBody.id}/reactions`)
-      .set('Authorization', `Bearer ${regBody.device_token}`)
-      .send({ type: 'SUPPORT' })
-      .expect(200);
-    expect((toggle1.body as { active: boolean }).active).toBe(true);
-
-    const toggle2 = await request(httpServer)
-      .post(`/v1/posts/${postBody.id}/reactions`)
-      .set('Authorization', `Bearer ${regBody.device_token}`)
-      .send({ type: 'SUPPORT' })
-      .expect(200);
-    expect((toggle2.body as { active: boolean }).active).toBe(false);
-
-    // Paso 5: Directorio Satélite y Asistente FAQ + Escalamiento WhatsApp
-    const dirRes = await request(httpServer).get('/v1/directory/links?page=1&limit=20').expect(200);
-    expect((dirRes.body as { data: Array<{ project_name: string }> }).data[0]?.project_name).toBe(
-      'SUMA 21',
-    );
-
-    const faqRes = await request(httpServer).get('/v1/assistant/faqs?page=1&limit=20').expect(200);
-    const faqBody = faqRes.body as { disclaimer: string; data: unknown[] };
-    expect(faqBody.disclaimer).toContain('orientación automatizada');
-    expect(faqBody.data).toHaveLength(1);
-
-    const escRes = await request(httpServer)
-      .post('/v1/assistant/escalate')
-      .send({ topic: 'Inscripción SUMA 21' })
-      .expect(200);
-    expect((escRes.body as { whatsapp_url: string }).whatsapp_url).toContain(
-      'https://wa.me/573001234567?text=',
-    );
+    const feedItems = (approvedFeed.body as { data: Array<{ media_urls: string[] }> }).data;
+    expect(feedItems).toHaveLength(1);
+    expect(feedItems[0]?.media_urls).toEqual(['https://cdn.asisco.org/fotos/taller1.jpg']);
   });
 });

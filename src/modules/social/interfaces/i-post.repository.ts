@@ -7,6 +7,7 @@ export interface ApprovedPostProjection {
   readonly categoryId: string;
   readonly content: string;
   readonly imageUrl: string | null;
+  readonly mediaUrls?: ReadonlyArray<string>;
   readonly createdAt: Date;
   readonly userAccountId: string | null;
   readonly username: string | null;
@@ -18,6 +19,7 @@ export interface ApprovedPostProjection {
 export interface ApprovedCommentProjection {
   readonly id: string;
   readonly postId: string;
+  readonly parentId?: string | null;
   readonly content: string;
   readonly createdAt: Date;
   readonly userAccountId: string | null;
@@ -39,6 +41,9 @@ export interface CreatePostData {
   readonly categoryId: string;
   readonly content: string;
   readonly imageUrl: string | null;
+  readonly mediaUrls?: ReadonlyArray<string>;
+  readonly status?: ModerationStatus;
+  readonly rejectionReason?: string | null;
 }
 
 export interface IPostRepository {
@@ -57,6 +62,7 @@ export interface IPostRepository {
   ): Promise<Map<string, ApprovedCommentProjection[]>>;
   create(data: CreatePostData): Promise<Post>;
   findStatusById(id: string): Promise<ModerationStatus | null>;
+  countPostsByDeviceSince?(deviceId: string, since: Date): Promise<number>;
 }
 
 export const POST_REPOSITORY = Symbol('POST_REPOSITORY');

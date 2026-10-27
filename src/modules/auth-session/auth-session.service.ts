@@ -1,4 +1,10 @@
-import { ConflictException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { SessionContext } from '../../common/auth/interfaces/session-context.interface';
 import { SessionTokenService } from '../../common/auth/session-token.service';
 import type {
@@ -8,11 +14,6 @@ import type {
 import type { InitAnonymousSessionDto } from './dto/init-anonymous.dto';
 import type { RegisterUserDto } from './dto/register-user.dto';
 import type { SyncSessionDto } from './dto/sync-session.dto';
-import {
-  GLOBAL_USER_REPOSITORY,
-  type GlobalUserRecord,
-  type IGlobalUserRepository,
-} from './interfaces/i-global-user.repository';
 import {
   type IUserSyncRepository,
   USER_SYNC_REPOSITORY,
@@ -27,8 +28,6 @@ export class AuthSessionService {
   constructor(
     @Inject(EXTERNAL_AUTH_ADAPTER)
     private readonly externalAuthAdapter: IExternalAuthAdapter,
-    @Inject(GLOBAL_USER_REPOSITORY)
-    private readonly globalUserRepository: IGlobalUserRepository,
     @Inject(USER_SYNC_REPOSITORY)
     private readonly userSyncRepository: IUserSyncRepository,
     private readonly sessionTokenService: SessionTokenService,
@@ -59,29 +58,18 @@ export class AuthSessionService {
       rol: dto.rol,
     });
 
-    let globalUser: GlobalUserRecord | null = null;
-    try {
-      globalUser =
-        (await this.globalUserRepository.findByUsernameOrEmail(externalUser.username)) ??
-        (await this.globalUserRepository.findByUsernameOrEmail(externalUser.email));
-    } catch {
-      globalUser = null;
-    }
-
-    const syncedWithGlobalDb = globalUser !== null;
-    const effectiveExternalId = globalUser?.id ?? externalUser.externalUserId;
-    const effectiveRol = (globalUser?.rol ?? externalUser.rol).trim().toUpperCase();
-
+    const effectiveRol = externalUser.rol.trim().toUpperCase();
     const existingAnonymousSessionId =
       optionalSession && optionalSession.userAccountId === null
         ? optionalSession.sessionId
         : undefined;
 
     const { user, session } = await this.userSyncRepository.upsertUserAndSession({
-      externalUserId: effectiveExternalId,
-      username: globalUser?.username ?? externalUser.username,
-      email: globalUser?.email ?? externalUser.email,
+      externalUserId: externalUser.externalUserId,
+      username: externalUser.username,
+      email: externalUser.email,
       rol: effectiveRol,
+      externalRoles: externalUser.roles,
       existingAnonymousSessionId,
       signSessionToken: ({ sessionId, userAccountId, role }) =>
         this.sessionTokenService.sign({
@@ -98,9 +86,11 @@ export class AuthSessionService {
         username: user.username,
         email: user.email,
         rol: user.rol,
+        external_roles: user.externalRoles,
+        local_role: user.localRole,
       },
       device_token: session.deviceToken,
-      synced_with_global_db: syncedWithGlobalDb,
+      synced_with_global_db: true,
     };
   }
 
@@ -108,20 +98,17 @@ export class AuthSessionService {
     dto: SyncSessionDto,
     optionalSession?: SessionContext,
   ): Promise<AuthSessionResponseDto> {
-    const externalUser = await this.externalAuthAdapter.authenticateUser(
-      dto.identifier,
-      dto.clave,
-    );
+    const rawIdentifier = (dto.email ?? dto.identifier ?? '').trim();
+    if (!rawIdentifier) {
+      throw new BadRequestException('Debe proporcionar email o identifier para iniciar sesión.');
+    }
 
-    const globalUser =
-      (await this.globalUserRepository.findByUsernameOrEmail(dto.identifier)) ??
-      (await this.globalUserRepository.findByUsernameOrEmail(externalUser.username)) ??
-      (await this.globalUserRepository.findByUsernameOrEmail(externalUser.email));
+    const externalUser = await this.externalAuthAdapter.authenticateUser(rawIdentifier, dto.clave);
 
-    const effectiveExternalId = globalUser?.id ?? externalUser.externalUserId;
-    const effectiveUsername = globalUser?.username ?? externalUser.username;
-    const effectiveEmail = globalUser?.email ?? externalUser.email;
-    const effectiveRol = (globalUser?.rol ?? externalUser.rol).trim().toUpperCase();
+    const effectiveExternalId = externalUser.externalUserId;
+    const effectiveUsername = externalUser.username;
+    const effectiveEmail = externalUser.email;
+    const effectiveRol = externalUser.rol.trim().toUpperCase();
 
     const existingAccount = await this.userSyncRepository.findByIdentity(
       effectiveExternalId,
@@ -143,6 +130,7 @@ export class AuthSessionService {
       username: effectiveUsername,
       email: effectiveEmail,
       rol: effectiveRol,
+      externalRoles: externalUser.roles,
       existingAnonymousSessionId,
       signSessionToken: ({ sessionId, userAccountId, role }) =>
         this.sessionTokenService.sign({
@@ -159,10 +147,19 @@ export class AuthSessionService {
         username: user.username,
         email: user.email,
         rol: user.rol,
+        external_roles: user.externalRoles,
+        local_role: user.localRole,
       },
       device_token: session.deviceToken,
-      synced_with_global_db: globalUser !== null,
+      synced_with_global_db: true,
     };
+  }
+
+  async login(
+    dto: SyncSessionDto,
+    optionalSession?: SessionContext,
+  ): Promise<AuthSessionResponseDto> {
+    return this.syncSession(dto, optionalSession);
   }
 
   async initAnonymous(dto: InitAnonymousSessionDto): Promise<AnonymousSessionResponseDto> {

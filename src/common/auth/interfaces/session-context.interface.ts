@@ -3,6 +3,8 @@ export interface SessionContext {
   readonly userAccountId: string | null;
   readonly username: string | null;
   readonly rol: string | null;
+  readonly externalRoles?: ReadonlyArray<string>;
+  readonly localRole?: string | null;
   readonly nickname: string | null;
   readonly roleTag: string | null;
   readonly consentAcceptedAt: Date | null;

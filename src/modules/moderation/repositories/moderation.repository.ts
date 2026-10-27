@@ -7,6 +7,7 @@ import type { AllowedModerationDecision } from '../dto/update-moderation-status.
 import type {
   IModerationRepository,
   ModerationUpdatedRecord,
+  ModeratorAccountRecord,
   PendingModerationRow,
 } from '../interfaces/i-moderation.repository';
 
@@ -33,7 +34,16 @@ interface RawCountRow {
 interface RawUpdatedRow {
   readonly id: string;
   readonly status: AllowedModerationDecision;
+  readonly rejection_reason: string | null;
   readonly updated_at: Date | string;
+}
+
+interface RawModeratorRow {
+  readonly id: string;
+  readonly username: string;
+  readonly email: string;
+  readonly rol: string;
+  readonly local_role: string | null;
 }
 
 function mapRawPendingRow(row: RawPendingRow): PendingModerationRow {
@@ -216,17 +226,21 @@ export class ModerationRepository implements IModerationRepository {
     id: string,
     status: AllowedModerationDecision,
   ): Promise<ModerationUpdatedRecord | null> {
+    const rejectionReason = status === ModerationStatus.REJECTED ? 'HUMAN' : null;
     const rows = await this.dataSource.query<RawUpdatedRow[]>(
       `
         WITH updated AS (
           UPDATE posts
-          SET status = $1::"public"."moderation_status_enum", updated_at = now()
+          SET
+            status = $1::"public"."moderation_status_enum",
+            rejection_reason = $3,
+            updated_at = now()
           WHERE id = $2
-          RETURNING id, status, updated_at
+          RETURNING id, status, rejection_reason, updated_at
         )
-        SELECT id, status, updated_at FROM updated
+        SELECT id, status, rejection_reason, updated_at FROM updated
       `,
-      [status, id],
+      [status, id, rejectionReason],
     );
 
     const row = rows[0];
@@ -238,6 +252,7 @@ export class ModerationRepository implements IModerationRepository {
       id: row.id,
       itemType: 'POST',
       status: row.status,
+      rejectionReason: row.rejection_reason,
       updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
     };
   }
@@ -246,17 +261,20 @@ export class ModerationRepository implements IModerationRepository {
     id: string,
     status: AllowedModerationDecision,
   ): Promise<ModerationUpdatedRecord | null> {
+    const rejectionReason = status === ModerationStatus.REJECTED ? 'HUMAN' : null;
     const rows = await this.dataSource.query<RawUpdatedRow[]>(
       `
         WITH updated AS (
           UPDATE comments
-          SET status = $1::"public"."moderation_status_enum"
+          SET
+            status = $1::"public"."moderation_status_enum",
+            rejection_reason = $3
           WHERE id = $2
-          RETURNING id, status, now() AS updated_at
+          RETURNING id, status, rejection_reason, now() AS updated_at
         )
-        SELECT id, status, updated_at FROM updated
+        SELECT id, status, rejection_reason, updated_at FROM updated
       `,
-      [status, id],
+      [status, id, rejectionReason],
     );
 
     const row = rows[0];
@@ -268,7 +286,55 @@ export class ModerationRepository implements IModerationRepository {
       id: row.id,
       itemType: 'COMMENT',
       status: row.status,
+      rejectionReason: row.rejection_reason,
       updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    };
+  }
+
+  async listModerators(): Promise<ModeratorAccountRecord[]> {
+    const rows = await this.dataSource.query<RawModeratorRow[]>(
+      `
+        SELECT id, username, email, rol, local_role
+        FROM user_accounts
+        WHERE local_role = 'MODERATOR' AND is_active = true
+        ORDER BY username ASC
+      `,
+    );
+
+    return rows.map((r) => ({
+      id: r.id,
+      username: r.username,
+      email: r.email,
+      rol: r.rol,
+      localRole: r.local_role,
+    }));
+  }
+
+  async setLocalRole(
+    userAccountId: string,
+    localRole: 'MODERATOR' | null,
+  ): Promise<ModeratorAccountRecord | null> {
+    const rows = await this.dataSource.query<RawModeratorRow[]>(
+      `
+        UPDATE user_accounts
+        SET local_role = $2
+        WHERE id = $1
+        RETURNING id, username, email, rol, local_role
+      `,
+      [userAccountId, localRole],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      username: row.username,
+      email: row.email,
+      rol: row.rol,
+      localRole: row.local_role,
     };
   }
 }

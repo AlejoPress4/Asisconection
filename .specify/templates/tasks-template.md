@@ -63,12 +63,12 @@ description: "Task list template for feature implementation"
 
 Examples of foundational tasks (adjust based on your project):
 
-- [ ] T004 Setup dual PostgreSQL TypeORM connections (`ASISCONEXION_DB` primary + `FOUNDATION_GLOBAL_DB` read/cross-check) and migrations framework
-- [ ] T005 [P] Implement `RENDER_AUTH_API_URL` HTTP adapter (`*.adapter.ts`) + `IRenderAuthClient`/`IExternalAuthAdapter` DI token and `Mock` provider (LSP/DIP)
+- [ ] T004 Setup PostgreSQL TypeORM connection (`ASISCONEXION_DB`) and migrations framework
+- [ ] T005 [P] Implement `RENDER_AUTH_API_URL` HTTP adapter (`*.adapter.ts`) + `IExternalAuthAdapter` DI token and `Mock` provider (LSP/DIP)
 - [ ] T006 [P] Configure global `ValidationPipe` (`whitelist: true`, `forbidNonWhitelisted: true`, `transform: true`) and `@nestjs/swagger` OpenAPI bootstrap
-- [ ] T007 [P] Implement global RFC 7807 `ExceptionFilter` (mapping Render failures/rejections cleanly to `502 BadGatewayException` / `409 ConflictException`)
-- [ ] T008 [P] Create shared RT-01 pagination DTOs and base TypeORM entities (`UserAccount`, `DeviceSession` with `consent_accepted_at`)
-- [ ] T009 Setup environment configuration validation (`RENDER_AUTH_API_URL`, `FOUNDATION_GLOBAL_DB`, `ASISCONEXION_DB`)
+- [ ] T007 [P] Implement global RFC 7807 `ExceptionFilter` (mapping Render failures/rejections cleanly to `401 UnauthorizedException` / `409 ConflictException` / `502 BadGatewayException`)
+- [ ] T008 [P] Create shared RT-01 pagination DTOs and base TypeORM entities (`UserAccount`, `Actor`, `DeviceSession` with `consent_accepted_at`)
+- [ ] T009 Setup environment configuration validation (`RENDER_AUTH_API_URL`, `ASISCONEXION_DB`)
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 

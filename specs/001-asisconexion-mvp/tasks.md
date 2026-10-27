@@ -228,6 +228,24 @@ description: "Lista de tareas ejecutable para AsisConexión MVP — Backend Mono
 
 ---
 
+## Phase 9: Evolución Arquitectónica v2 (Constitución v2.0.0)
+
+**Purpose**: Reemplazar la conexión directa a `FOUNDATION_GLOBAL_DB` por el contrato real probado del servicio HTTP en Render/Supabase (`IExternalAuthAdapter`), añadir `Actor` y `ActorConnection` para usuarios registrados, `PostMedia` (`media_urls`), hilos en `Comment` (`parent_id`), `CommentReaction`, filtro automático de contenido (`ContentFilterService` + `IContentRule`), rol `MODERATOR` global y retirar el stub de RAG de Fase 2.
+
+- [X] T097 [US1] Eliminar `FOUNDATION_GLOBAL_DB` (`GlobalUserViewEntity`, `GlobalUserRepository`, `GlobalUserMockRepository`, `i-global-user.repository.ts`) y actualizar `src/config/env.validation.ts` y `src/database/database.module.ts` para operar exclusivamente con `ASISCONEXION_DB` + variables de cuota anónima (`ANON_MAX_POSTS_PER_DAY`, `ANON_MAX_COMMENTS_PER_DAY`) y `RENDER_PROFILE_PATH`.
+- [X] T098 [US1] Actualizar `UserAccount` (`external_user_id: number | null`, `external_roles: string[]`, `local_role: string | null`), crear entidades `Actor` (`src/modules/auth-session/entities/actor.entity.ts`) y `ActorConnection` (`src/modules/auth-session/entities/actor-connection.entity.ts`), y actualizar `SessionContext` y `RolesGuard` para validar `ADMIN` desde `external_roles` y `MODERATOR` desde `local_role`.
+- [X] T099 [US1] Unificar `IExternalAuthAdapter` (`EXTERNAL_AUTH_ADAPTER` / `RENDER_AUTH_ADAPTER`) en `src/modules/auth-session/interfaces/i-render-auth.adapter.ts` y actualizar `RenderAuthHttpAdapter` y `RenderAuthMockAdapter` al contrato real probado de Render (`POST /auth/login` -> `{ token, expiraEn, usuario: { usuarioId, username, email, fechaCreacion, roles } }`, `GET /auth/perfil`, `POST /auth/registro`, manejo de `{ error }` y `429` -> `502`).
+- [X] T100 [US1] Actualizar `LocalUserRepository`, `AuthSessionService` y `AuthSessionController` para exponer `POST /v1/auth/login` (manteniendo alias `POST /v1/auth/sync-session` por compatibilidad), sincronizar `UserAccount` + `Actor` 1:1 en usuarios registrados y no crear `Actor` en sesiones anónimas.
+- [X] T101 [US2] Crear DTOs, repositorio (`ActorRepository`), servicio (`ActorsService`) y controlador (`ActorsController`) para perfiles y conexiones de usuarios registrados: `GET /v1/actors/me`, `PATCH /v1/actors/me`, `GET /v1/actors/:id`, `POST /v1/connections`, `PATCH /v1/connections/:id` y `GET /v1/connections` (bloqueando sesiones anónimas con `403 Forbidden`).
+- [X] T102 [US3] Actualizar entidades sociales: `Category` (`main_topic`, `cover_image_url`), `Post` (`rejection_reason`, relación `media`), crear `PostMedia` (`src/modules/social/entities/post-media.entity.ts`), actualizar `Comment` (`parent_id`, `rejection_reason`) y crear `CommentReaction` (`src/modules/social/entities/comment-reaction.entity.ts`), junto con la migración TypeORM `1761430400000-EvolutionV2Schema.ts`.
+- [X] T103 [US4] Implementar `IContentRule` (`CONTENT_FILTER_RULES`), las 4 reglas (`ProfanityContentRule`, `ExternalLinkContentRule`, `MinorDataContentRule`, `SpamContentRule`) y `ContentFilterService` en `src/modules/moderation/` para marcar como `REJECTED` (`rejection_reason = 'AUTO_FILTER'`) cualquier publicación o comentario que infrinja las reglas.
+- [X] T104 [US3] Actualizar `PostsService`, `PostsController` y repositorios de `SocialModule` para soportar `media_urls: string[]`, hilos `parent_id` en comentarios, reacciones a comentarios (`POST /v1/comments/:id/reactions`), evaluación previa con `ContentFilterService` y cuota diaria para sesiones anónimas (`429 Too Many Requests`).
+- [X] T105 [US4] Actualizar `ModerationRepository`, `ModerationService` y `ModerationController` para permitir moderación a `ADMIN` y `MODERATOR` (`rejection_reason = 'HUMAN'`) y añadir los endpoints exclusivos de `ADMIN`: `GET /v1/admin/moderators`, `PUT /v1/admin/moderators/:userAccountId` y `DELETE /v1/admin/moderators/:userAccountId`.
+- [X] T106 [US6] Eliminar `src/modules/assistant/providers/rag-multimodal.provider.stub.ts` y ajustar `AssistantModule` para conservar `IAssistantEngineProvider` con `FaqRuleEngineProvider`.
+- [X] T107 Crear/actualizar pruebas unitarias y E2E (`test/`) verificando login con contrato Render, perfiles `Actor` y conexiones, filtro automático (`AUTO_FILTER`), hilos y reacciones de comentarios, rol `MODERATOR` y cumplimiento estricto de `npm run lint`, `npm run test` y `npm run test:e2e`.
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

@@ -30,7 +30,7 @@ export class AuthSessionController {
   @Post('auth/registro')
   @UseGuards(OptionalDeviceSessionGuard)
   @ApiOperation({
-    summary: 'Registra usuario en Render, sincroniza UserAccount local y emite DeviceSession',
+    summary: 'Registra usuario en Render, sincroniza UserAccount + Actor local y emite DeviceSession',
   })
   @ApiCreatedResponse({
     description: 'Usuario registrado, persistido en ASISCONEXION_DB y sesión emitida',
@@ -55,11 +55,40 @@ export class AuthSessionController {
     return this.authSessionService.register(dto, optionalSession);
   }
 
+  @Post('auth/login')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(OptionalDeviceSessionGuard)
+  @ApiOperation({
+    summary: 'Autentica usuario contra Render/Supabase, sincroniza UserAccount + Actor y emite device_token',
+  })
+  @ApiOkResponse({
+    description: 'Cuenta sincronizada en ASISCONEXION_DB y device_token emitido',
+    type: AuthSessionResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Datos inválidos o consentimiento no aceptado',
+    type: ProblemDetailsDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Credenciales inválidas o cuenta inactiva',
+    type: ProblemDetailsDto,
+  })
+  @ApiBadGatewayResponse({
+    description: 'Indisponibilidad o rate-limit en servicio central',
+    type: ProblemDetailsDto,
+  })
+  async login(
+    @Body() dto: SyncSessionDto,
+    @CurrentSession() optionalSession?: SessionContext,
+  ): Promise<AuthSessionResponseDto> {
+    return this.authSessionService.login(dto, optionalSession);
+  }
+
   @Post('auth/sync-session')
   @HttpCode(HttpStatus.OK)
   @UseGuards(OptionalDeviceSessionGuard)
   @ApiOperation({
-    summary: 'Autentica/verifica usuario existente en BD General/Render y sincroniza sesión local',
+    summary: 'Alias compatible de inicio/sincronización de sesión con el servicio central',
   })
   @ApiOkResponse({
     description: 'Cuenta sincronizada en ASISCONEXION_DB y device_token emitido',
@@ -86,7 +115,7 @@ export class AuthSessionController {
 
   @Post('sessions/anonymous')
   @ApiOperation({
-    summary: 'Inicia sesión rápida por dispositivo sin registro de cuenta completa',
+    summary: 'Inicia sesión rápida por dispositivo sin registro de cuenta ni perfil Actor',
   })
   @ApiCreatedResponse({
     description: 'DeviceSession anónima creada con trazabilidad de consentimiento',

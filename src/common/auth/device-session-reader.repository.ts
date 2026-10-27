@@ -30,6 +30,8 @@ export class DeviceSessionReaderRepository implements IDeviceSessionReader {
       userAccountId: session.userAccountId,
       username: account ? account.username : null,
       rol: account ? account.rol : null,
+      externalRoles: account ? (account.externalRoles ?? [account.rol]) : [],
+      localRole: account ? account.localRole : null,
       nickname: session.nickname,
       roleTag: session.roleTag,
       consentAcceptedAt: session.consentAcceptedAt,

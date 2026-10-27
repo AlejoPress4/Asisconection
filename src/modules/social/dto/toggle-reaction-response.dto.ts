@@ -14,3 +14,17 @@ export class ToggleReactionResponseDto {
   })
   active!: boolean;
 }
+
+export class ToggleCommentReactionResponseDto {
+  @ApiProperty({ format: 'uuid' })
+  comment_id!: string;
+
+  @ApiProperty({ enum: ReactionType, example: ReactionType.LIKE })
+  type!: ReactionType;
+
+  @ApiProperty({
+    description: 'true si la reacción quedó activa; false si fue retirada.',
+    example: true,
+  })
+  active!: boolean;
+}

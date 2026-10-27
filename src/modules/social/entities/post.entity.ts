@@ -5,6 +5,7 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -12,6 +13,7 @@ import { ModerationStatus } from '../../../common/enums/moderation-status.enum';
 import { DeviceSession } from '../../auth-session/entities/device-session.entity';
 import { UserAccount } from '../../auth-session/entities/user-account.entity';
 import { Category } from './category.entity';
+import { PostMedia } from './post-media.entity';
 
 @Entity({ name: 'posts' })
 @Index('IDX_posts_status', ['status'])
@@ -48,6 +50,9 @@ export class Post {
   @Column({ name: 'image_url', type: 'varchar', length: 500, nullable: true })
   imageUrl!: string | null;
 
+  @OneToMany(() => PostMedia, (media) => media.post)
+  media?: PostMedia[];
+
   @Column({
     type: 'enum',
     enum: ModerationStatus,
@@ -55,6 +60,9 @@ export class Post {
     default: ModerationStatus.PENDING,
   })
   status!: ModerationStatus;
+
+  @Column({ name: 'rejection_reason', type: 'varchar', length: 40, nullable: true })
+  rejectionReason!: string | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

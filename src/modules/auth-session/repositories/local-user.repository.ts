@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import type { DataSource, EntityManager } from 'typeorm';
+import { Actor } from '../entities/actor.entity';
 import { DeviceSession } from '../entities/device-session.entity';
 import { UserAccount } from '../entities/user-account.entity';
 import type {
@@ -18,7 +19,7 @@ export class LocalUserRepository implements IUserSyncRepository {
   ) {}
 
   async findByIdentity(
-    externalUserId: string | null,
+    externalUserId: number | null,
     username: string,
     email: string,
   ): Promise<UserAccount | null> {
@@ -27,9 +28,10 @@ export class LocalUserRepository implements IUserSyncRepository {
 
   async upsertUserAndSession(
     input: SyncUserSessionInput,
-  ): Promise<{ user: UserAccount; session: DeviceSession }> {
+  ): Promise<{ user: UserAccount; actor: Actor; session: DeviceSession }> {
     return this.dataSource.transaction(async (manager) => {
       const userRepo = manager.getRepository(UserAccount);
+      const actorRepo = manager.getRepository(Actor);
       const sessionRepo = manager.getRepository(DeviceSession);
       const now = new Date();
 
@@ -44,12 +46,18 @@ export class LocalUserRepository implements IUserSyncRepository {
         throw new UnauthorizedException('La cuenta de usuario se encuentra inactiva.');
       }
 
+      const normalizedExternalRoles =
+        input.externalRoles && input.externalRoles.length > 0
+          ? [...input.externalRoles]
+          : [input.rol];
+
       const userToSave = existingUser
         ? userRepo.merge(existingUser, {
             externalUserId: input.externalUserId ?? existingUser.externalUserId,
             username: input.username.trim(),
             email: input.email.trim().toLowerCase(),
             rol: input.rol,
+            externalRoles: normalizedExternalRoles,
             lastSyncedAt: now,
           })
         : userRepo.create({
@@ -57,11 +65,32 @@ export class LocalUserRepository implements IUserSyncRepository {
             username: input.username.trim(),
             email: input.email.trim().toLowerCase(),
             rol: input.rol,
+            externalRoles: normalizedExternalRoles,
+            localRole: null,
             isActive: true,
             lastSyncedAt: now,
           });
 
       const savedUser = await userRepo.save(userToSave);
+
+      const existingActor = await actorRepo.findOne({
+        where: { userAccountId: savedUser.id },
+      });
+
+      const actorToSave = existingActor
+        ? actorRepo.merge(existingActor, {
+            primaryRole: existingActor.primaryRole || savedUser.rol,
+          })
+        : actorRepo.create({
+            userAccountId: savedUser.id,
+            primaryRole: savedUser.rol,
+            firstNames: null,
+            lastNames: null,
+            avatarUrl: null,
+            shortBio: null,
+          });
+
+      const savedActor = await actorRepo.save(actorToSave);
 
       let targetSession: DeviceSession | null = null;
       if (input.existingAnonymousSessionId) {
@@ -101,6 +130,7 @@ export class LocalUserRepository implements IUserSyncRepository {
 
       return {
         user: savedUser,
+        actor: savedActor,
         session: savedSession,
       };
     });
@@ -132,13 +162,13 @@ export class LocalUserRepository implements IUserSyncRepository {
 
   private async findAccountWithManager(
     manager: EntityManager,
-    externalUserId: string | null,
+    externalUserId: number | null,
     username: string,
     email: string,
   ): Promise<UserAccount | null> {
     const userRepo = manager.getRepository(UserAccount);
 
-    if (externalUserId) {
+    if (externalUserId !== null && externalUserId !== undefined) {
       const byExternal = await userRepo.findOne({
         where: { externalUserId },
       });

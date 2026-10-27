@@ -6,15 +6,19 @@ export interface ExternalRegisterPayload {
 }
 
 export interface ExternalAuthUserResult {
-  readonly externalUserId: string | null;
+  readonly externalUserId: number | null;
   readonly username: string;
   readonly email: string;
   readonly rol: string;
+  readonly roles: ReadonlyArray<string>;
+  readonly externalToken?: string;
+  readonly expiresAt?: string;
 }
 
 export interface IExternalAuthAdapter {
   registerUser(payload: ExternalRegisterPayload): Promise<ExternalAuthUserResult>;
   authenticateUser(identifier: string, clave: string): Promise<ExternalAuthUserResult>;
+  getProfile?(externalToken: string): Promise<ExternalAuthUserResult>;
 }
 
 export const EXTERNAL_AUTH_ADAPTER = Symbol('EXTERNAL_AUTH_ADAPTER');

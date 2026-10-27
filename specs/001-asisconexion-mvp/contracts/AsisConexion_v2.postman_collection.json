@@ -1,0 +1,1059 @@
+{
+  "info": {
+    "_postman_id": "a515c0e2-2026-4b00-9000-a515c0000002",
+    "name": "AsisConexión Backend API v2.0.0 (Postman & Insomnia)",
+    "description": "Colección completa para probar los endpoints de AsisConexión Backend v2.0.0.\n\nCompatible de forma nativa con **Postman** e **Insomnia** (Import -> File).\n\nIncluye:\n1. Identidad Híbrida y Sesiones (`POST /v1/auth/login`, `/v1/auth/registro`, `/v1/sessions/anonymous`)\n2. Perfiles `Actor` y Conexiones `ActorConnection` para usuarios registrados (`/v1/actors/*`, `/v1/connections/*`)\n3. Foros Comunitarios, Multimedia (`media_urls`), Hilos (`parent_id`), Reacciones a Posts y Comentarios y Filtro Automático (`AUTO_FILTER`)\n4. Moderación Humana (`RN-02`) y Gestión de Moderadores Globales (`ADMIN` / `MODERATOR`)\n5. Directorio de Módulos Satélites (`SUMA 21`, `AULA UP`, `SAGA-UP`)\n6. Asistente Orientativo FAQ y Escalamiento a WhatsApp\n\nLas peticiones incluyen scripts post-respuesta que guardan automáticamente los tokens (`adminToken`, `userToken`, `moderatorToken`, `anonToken`) y los UUIDs (`categoryId`, `postId`, `commentId`, `actorId`, `receiverActorId`, `connectionId`) en variables de colección.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "adminToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminUserAccountId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userAccountId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "moderatorToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "moderatorUserAccountId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "anonToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "actorId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "receiverActorId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "connectionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "categoryId",
+      "value": "11111111-1111-4111-8111-111111111111",
+      "type": "string"
+    },
+    {
+      "key": "postId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "commentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "replyCommentId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - AuthSession (Identidad Híbrida y Sesiones)",
+      "description": "Autenticación contra el servicio central en Render/Supabase (o modo Mock con `USE_MOCK_EXTERNAL_SERVICES=true`) y sesiones rápidas anónimas.",
+      "item": [
+        {
+          "name": "1.1 Login ADMIN (Guarda adminToken)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json && json.device_token) {",
+                  "  pm.collectionVariables.set('adminToken', json.device_token);",
+                  "}",
+                  "if (json && json.user && json.user.id) {",
+                  "  pm.collectionVariables.set('adminUserAccountId', json.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@asisco.org\",\n  \"clave\": \"ClaveAsisco2026\",\n  \"accept_consent\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "auth", "login"]
+            },
+            "description": "Autentica al administrador general (`admin@asisco.org` en modo Mock o credenciales reales de Render) y guarda `adminToken`."
+          }
+        },
+        {
+          "name": "1.2 Login Usuario Registrado Acudiente (Guarda userToken)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json && json.device_token) {",
+                  "  pm.collectionVariables.set('userToken', json.device_token);",
+                  "}",
+                  "if (json && json.user && json.user.id) {",
+                  "  pm.collectionVariables.set('userAccountId', json.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"maria@prueba.com\",\n  \"clave\": \"ClaveAsisco2026\",\n  \"accept_consent\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "auth", "login"]
+            },
+            "description": "Autentica a un usuario registrado (`maria@prueba.com`), sincroniza su `UserAccount` + `Actor` 1:1 y guarda `userToken`."
+          }
+        },
+        {
+          "name": "1.3 Login Voluntario / Futuro Moderador (Guarda moderatorToken)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json && json.device_token) {",
+                  "  pm.collectionVariables.set('moderatorToken', json.device_token);",
+                  "}",
+                  "if (json && json.user && json.user.id) {",
+                  "  pm.collectionVariables.set('moderatorUserAccountId', json.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"carlos@asisco.org\",\n  \"clave\": \"ClaveAsisco2026\",\n  \"accept_consent\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "auth", "login"]
+            },
+            "description": "Autentica al segundo usuario registrado (`carlos@asisco.org`) para probar conexiones entre actores y asignación del rol global `MODERATOR`."
+          }
+        },
+        {
+          "name": "1.4 Registro de Nuevo Usuario en Render y BD Local",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"laura.acudiente\",\n  \"email\": \"laura.acudiente@prueba.com\",\n  \"clave\": \"ClaveSegura2026\",\n  \"rol\": \"ACUDIENTE\",\n  \"accept_consent\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/registro",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "auth", "registro"]
+            },
+            "description": "Registra una cuenta nueva en el servicio central (Render/Supabase), crea `UserAccount` + `Actor` en `ASISCONEXION_DB` y devuelve el `device_token`."
+          }
+        },
+        {
+          "name": "1.5 Alias Login Sincronizado (/v1/auth/sync-session)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"maria@prueba.com\",\n  \"clave\": \"ClaveAsisco2026\",\n  \"accept_consent\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/sync-session",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "auth", "sync-session"]
+            },
+            "description": "Alias compatible con clientes v1 que envían `identifier` o `email`."
+          }
+        },
+        {
+          "name": "1.6 Iniciar Sesión Rápida Anónima (Guarda anonToken)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201 Created', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json && json.device_token) {",
+                  "  pm.collectionVariables.set('anonToken', json.device_token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nickname\": \"MamáDeMateo\",\n  \"role_tag\": \"ACUDIENTE\",\n  \"accept_consent\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/sessions/anonymous",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "sessions", "anonymous"]
+            },
+            "description": "Crea una `DeviceSession` rápida sin cuenta registrada (`user_account_id = null`) y guarda `anonToken`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Actors & Connections (Solo Usuarios Registrados)",
+      "description": "Gestión de perfil extendido `Actor` 1:1 y conexiones `ActorConnection` (`PENDING`, `ACCEPTED`, `BLOCKED`). Exclusivo para usuarios registrados.",
+      "item": [
+        {
+          "name": "2.1 Obtener Mi Perfil Actor (Usuario 1 -> Guarda actorId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json && json.id) {",
+                  "  pm.collectionVariables.set('actorId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/actors/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "actors", "me"]
+            }
+          }
+        },
+        {
+          "name": "2.2 Actualizar Mi Perfil Actor (PATCH /v1/actors/me)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"primary_role\": \"ACUDIENTE\",\n  \"first_names\": \"María Fernanda\",\n  \"last_names\": \"Gómez Pérez\",\n  \"avatar_url\": \"https://cdn.asisco.org/avatars/maria.jpg\",\n  \"short_bio\": \"Madre cuidadora y participante activa en talleres pedagógicos.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/actors/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "actors", "me"]
+            }
+          }
+        },
+        {
+          "name": "2.3 Obtener Perfil Actor del Usuario 2 (Guarda receiverActorId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json && json.id) {",
+                  "  pm.collectionVariables.set('receiverActorId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{moderatorToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/actors/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "actors", "me"]
+            }
+          }
+        },
+        {
+          "name": "2.4 Consultar Perfil Público de un Actor por UUID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/actors/{{receiverActorId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "actors", "{{receiverActorId}}"]
+            }
+          }
+        },
+        {
+          "name": "2.5 Enviar Solicitud de Conexión (Guarda connectionId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201 Created', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json && json.id) {",
+                  "  pm.collectionVariables.set('connectionId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"receiver_actor_id\": \"{{receiverActorId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/connections",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "connections"]
+            }
+          }
+        },
+        {
+          "name": "2.6 Aceptar Solicitud de Conexión (Receptor -> ACCEPTED)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{moderatorToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ACCEPTED\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/connections/{{connectionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "connections", "{{connectionId}}"]
+            }
+          }
+        },
+        {
+          "name": "2.7 Listar Mis Conexiones Paginadas",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connections?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "connections"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "2.8 [Regla v2] Sesión Anónima No Tiene Actor (Esperado 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 403 Forbidden para sesiones anónimas', function () {",
+                  "  pm.response.to.have.status(403);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{anonToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/actors/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "actors", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Social (Foros Públicos, Multimedia, Hilos y Reacciones)",
+      "description": "Categorías públicas, publicaciones con múltiples URLs multimedia (`PostMedia`), filtro automático (`ContentFilterService`), hilos de comentarios (`parent_id`) y reacciones en posts y comentarios.",
+      "item": [
+        {
+          "name": "3.1 Listar Categorías Públicas (Guarda categoryId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json && Array.isArray(json.data) && json.data.length > 0) {",
+                  "  pm.collectionVariables.set('categoryId', json.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/categories?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "categories"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "3.2 Crear Publicación con media_urls (Nace en PENDING -> Guarda postId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201 Created en estado PENDING', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json && json.id) {",
+                  "  pm.collectionVariables.set('postId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category_id\": \"{{categoryId}}\",\n  \"content\": \"Comparto nuestra experiencia con rutinas visuales para apoyar la autonomía en casa.\",\n  \"image_url\": \"https://cdn.asisco.org/posts/rutina-portada.jpg\",\n  \"media_urls\": [\n    \"https://cdn.asisco.org/posts/rutina-paso-1.jpg\",\n    \"https://cdn.asisco.org/posts/rutina-paso-2.jpg\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/posts",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "posts"]
+            }
+          }
+        },
+        {
+          "name": "3.3 [Filtro Automático] Crear Publicación con Enlace Externo (REJECTED AUTO_FILTER)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201 pero marcado como REJECTED AUTO_FILTER', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.status).to.eql('REJECTED');",
+                  "  pm.expect(json.rejection_reason).to.eql('AUTO_FILTER');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{anonToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category_id\": \"{{categoryId}}\",\n  \"content\": \"Visiten este enlace externo no autorizado https://sitio-spam-externo.com para ganar premios\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/posts",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "posts"]
+            }
+          }
+        },
+        {
+          "name": "3.4 Listar Publicaciones Aprobadas en Muro Público",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/posts?page=1&limit=20&categoryId={{categoryId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "posts"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "categoryId",
+                  "value": "{{categoryId}}"
+                }
+              ]
+            },
+            "description": "Devuelve únicamente publicaciones con `status = 'APPROVED'`. (Ejecuta primero el paso 4.4 para aprobar `{{postId}}` y verla en el muro)."
+          }
+        },
+        {
+          "name": "3.5 Crear Comentario Raíz sobre Publicación Aprobada (Guarda commentId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json && json.id) {",
+                  "  pm.collectionVariables.set('commentId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{anonToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"¡Muchas gracias por compartir estas rutinas visuales, nos ayudan muchísimo!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/posts/{{postId}}/comments",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "posts", "{{postId}}", "comments"]
+            },
+            "description": "Nota: Requiere que la publicación `{{postId}}` haya sido aprobada previamente en el paso 4.4."
+          }
+        },
+        {
+          "name": "3.6 Crear Respuesta en Hilo (parent_id -> Guarda replyCommentId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json && json.id) {",
+                  "  pm.collectionVariables.set('replyCommentId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"¡Con mucho gusto! En el próximo taller llevaremos las plantillas impresas.\",\n  \"parent_id\": \"{{commentId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/posts/{{postId}}/comments",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "posts", "{{postId}}", "comments"]
+            }
+          }
+        },
+        {
+          "name": "3.7 Alternar Reacción en Publicación (Toggle SUPPORT)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{anonToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"SUPPORT\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/posts/{{postId}}/reactions",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "posts", "{{postId}}", "reactions"]
+            }
+          }
+        },
+        {
+          "name": "3.8 Alternar Reacción en Comentario Aprobado (Toggle THANKS)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"THANKS\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/comments/{{commentId}}/reactions",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "comments", "{{commentId}}", "reactions"]
+            },
+            "description": "Nota: Requiere que el comentario `{{commentId}}` haya sido aprobado previamente en el paso 4.5."
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Moderation (Moderación Humana y Gestión de Moderadores)",
+      "description": "Asignación de moderadores globales (exclusivo `ADMIN`) y cola/aprobación/rechazo de contenido `PENDING` (`ADMIN` o `MODERATOR`).",
+      "item": [
+        {
+          "name": "4.1 Asignar Rol Global MODERATOR (Solo ADMIN)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/moderators/{{moderatorUserAccountId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "admin", "moderators", "{{moderatorUserAccountId}}"]
+            }
+          }
+        },
+        {
+          "name": "4.2 Listar Moderadores Globales Activos (Solo ADMIN)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/moderators",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "admin", "moderators"]
+            }
+          }
+        },
+        {
+          "name": "4.3 Consultar Cola de Moderación Pendiente (ADMIN o MODERATOR)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{moderatorToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/moderation/pending?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "admin", "moderation", "pending"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "4.4 Aprobar Publicación (MODERATOR o ADMIN)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{moderatorToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"APPROVED\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/moderation/posts/{{postId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "admin", "moderation", "posts", "{{postId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "4.5 Aprobar Comentario Raíz (MODERATOR o ADMIN)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{moderatorToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"APPROVED\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/moderation/comments/{{commentId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "admin", "moderation", "comments", "{{commentId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "4.6 Revocar Rol Global MODERATOR (Solo ADMIN)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/moderators/{{moderatorUserAccountId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "admin", "moderators", "{{moderatorUserAccountId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 - Directory (Módulos Satélites)",
+      "description": "Directorio paginado de enlaces hacia módulos satélites (`SUMA 21`, `AULA UP`, `SAGA-UP`).",
+      "item": [
+        {
+          "name": "5.1 Listar Enlaces Activos del Directorio",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/directory/links?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "directory", "links"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 - Assistant (Orientación FAQ y Escalamiento WhatsApp)",
+      "description": "Preguntas frecuentes con disclaimer institucional obligatorio (`FaqRuleEngineProvider`) y generación de URL directa a WhatsApp.",
+      "item": [
+        {
+          "name": "6.1 Listar FAQs con Disclaimer Obligatorio",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/assistant/faqs?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "assistant", "faqs"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "6.2 Filtrar FAQs por Categoría",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/assistant/faqs?category=Inscripciones&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "assistant", "faqs"],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "Inscripciones"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "6.3 Generar Enlace de Escalamiento a WhatsApp",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"topic\": \"Orientación sobre matrícula en AULA UP\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/assistant/escalate",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "assistant", "escalate"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

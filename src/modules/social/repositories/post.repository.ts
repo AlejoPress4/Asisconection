@@ -3,6 +3,7 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { DataSource, Repository } from 'typeorm';
 import { ModerationStatus } from '../../../common/enums/moderation-status.enum';
 import { ReactionType } from '../../../common/enums/reaction-type.enum';
+import { PostMedia } from '../entities/post-media.entity';
 import { Post } from '../entities/post.entity';
 import type {
   ApprovedCommentProjection,
@@ -25,6 +26,7 @@ interface RawCommentCountRow {
 interface RawRecentCommentRow {
   readonly id: string;
   readonly post_id: string;
+  readonly parent_id: string | null;
   readonly content: string;
   readonly created_at: Date | string;
   readonly user_account_id: string | null;
@@ -32,6 +34,11 @@ interface RawRecentCommentRow {
   readonly rol: string | null;
   readonly nickname: string | null;
   readonly role_tag: string | null;
+}
+
+interface RawPostMediaRow {
+  readonly post_id: string;
+  readonly media_url: string;
 }
 
 function createEmptyReactionMap(): Record<ReactionType, number> {
@@ -92,18 +99,42 @@ export class PostRepository implements IPostRepository {
       .take(take)
       .getManyAndCount();
 
-    const items: ApprovedPostProjection[] = entities.map((post) => ({
-      id: post.id,
-      categoryId: post.categoryId,
-      content: post.content,
-      imageUrl: post.imageUrl,
-      createdAt: post.createdAt,
-      userAccountId: post.userAccountId,
-      username: post.userAccount?.username ?? null,
-      rol: post.userAccount?.rol ?? null,
-      nickname: post.device?.nickname ?? null,
-      roleTag: post.device?.roleTag ?? null,
-    }));
+    const postIds = entities.map((p) => p.id);
+    const mediaMap = new Map<string, string[]>();
+
+    if (postIds.length > 0) {
+      const mediaRows = await this.dataSource.query<RawPostMediaRow[]>(
+        `
+          SELECT post_id, media_url
+          FROM post_media
+          WHERE post_id = ANY($1::uuid[])
+          ORDER BY display_order ASC, created_at ASC
+        `,
+        [postIds],
+      );
+      for (const row of mediaRows) {
+        const current = mediaMap.get(row.post_id) ?? [];
+        current.push(row.media_url);
+        mediaMap.set(row.post_id, current);
+      }
+    }
+
+    const items: ApprovedPostProjection[] = entities.map((post) => {
+      const mediaList = mediaMap.get(post.id) ?? (post.imageUrl ? [post.imageUrl] : []);
+      return {
+        id: post.id,
+        categoryId: post.categoryId,
+        content: post.content,
+        imageUrl: post.imageUrl ?? mediaList[0] ?? null,
+        mediaUrls: mediaList,
+        createdAt: post.createdAt,
+        userAccountId: post.userAccountId,
+        username: post.userAccount?.username ?? null,
+        rol: post.userAccount?.rol ?? null,
+        nickname: post.device?.nickname ?? null,
+        roleTag: post.device?.roleTag ?? null,
+      };
+    });
 
     return { items, total };
   }
@@ -180,6 +211,7 @@ export class PostRepository implements IPostRepository {
         SELECT
           ranked.id,
           ranked.post_id,
+          ranked.parent_id,
           ranked.content,
           ranked.created_at,
           ranked.user_account_id,
@@ -191,6 +223,7 @@ export class PostRepository implements IPostRepository {
           SELECT
             c.id,
             c.post_id,
+            c.parent_id,
             c.content,
             c.created_at,
             c.user_account_id,
@@ -215,6 +248,7 @@ export class PostRepository implements IPostRepository {
       existing.push({
         id: row.id,
         postId: row.post_id,
+        parentId: row.parent_id,
         content: row.content,
         createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
         userAccountId: row.user_account_id,
@@ -230,15 +264,42 @@ export class PostRepository implements IPostRepository {
   }
 
   async create(data: CreatePostData): Promise<Post> {
-    const entity = this.repository.create({
-      deviceId: data.deviceId,
-      userAccountId: data.userAccountId,
-      categoryId: data.categoryId,
-      content: data.content,
-      imageUrl: data.imageUrl,
-      status: ModerationStatus.PENDING,
+    return this.dataSource.transaction(async (manager) => {
+      const postRepo = manager.getRepository(Post);
+      const mediaRepo = manager.getRepository(PostMedia);
+
+      const mediaList =
+        data.mediaUrls && data.mediaUrls.length > 0
+          ? [...data.mediaUrls]
+          : data.imageUrl
+            ? [data.imageUrl]
+            : [];
+
+      const entity = postRepo.create({
+        deviceId: data.deviceId,
+        userAccountId: data.userAccountId,
+        categoryId: data.categoryId,
+        content: data.content,
+        imageUrl: data.imageUrl ?? mediaList[0] ?? null,
+        status: data.status ?? ModerationStatus.PENDING,
+        rejectionReason: data.rejectionReason ?? null,
+      });
+
+      const savedPost = await postRepo.save(entity);
+
+      if (mediaList.length > 0) {
+        const mediaEntities = mediaList.map((url, idx) =>
+          mediaRepo.create({
+            postId: savedPost.id,
+            mediaUrl: url,
+            displayOrder: idx,
+          }),
+        );
+        await mediaRepo.save(mediaEntities);
+      }
+
+      return savedPost;
     });
-    return this.repository.save(entity);
   }
 
   async findStatusById(id: string): Promise<ModerationStatus | null> {
@@ -249,5 +310,12 @@ export class PostRepository implements IPostRepository {
       .getOne();
 
     return post ? post.status : null;
+  }
+
+  async countPostsByDeviceSince(deviceId: string, since: Date): Promise<number> {
+    return this.repository
+      .createQueryBuilder('p')
+      .where('p.device_id = :deviceId AND p.created_at >= :since', { deviceId, since })
+      .getCount();
   }
 }

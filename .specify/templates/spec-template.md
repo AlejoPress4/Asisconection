@@ -75,9 +75,9 @@
   Fill them out with the right edge cases.
 -->
 
-- What happens when `RENDER_AUTH_API_URL` is unreachable or rejects a payload (must map cleanly to RFC 7807 `502 BadGatewayException` or `409 ConflictException` without issuing local session tokens)?
-- How does the system guarantee sync consistency between `FOUNDATION_GLOBAL_DB` (cross-check) and `ASISCONEXION_DB` before confirming local operations?
-- What happens when a client attempts to bypass `status = 'PENDING'` on `Post`/`Comment` or omits `consent_accepted_at` when creating a session or uploading media of minors/beneficiaries?
+- What happens when `RENDER_AUTH_API_URL` is unreachable, rate-limited (429), or rejects a payload (must map cleanly to RFC 7807 `502 BadGatewayException`, `401 UnauthorizedException`, or `409 ConflictException` without issuing local session tokens)?
+- How does the system guarantee sync consistency in `ASISCONEXION_DB` (`UserAccount` + `Actor` + `DeviceSession`) before confirming local operations?
+- What happens when content triggers `ContentFilterService` (`AUTO_FILTER` -> `REJECTED`) or when a client attempts to bypass `status = 'PENDING'` on `Post`/`Comment` or omits `consent_accepted_at`?
 
 ## Requirements *(mandatory)*
 

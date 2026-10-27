@@ -1,7 +1,9 @@
 export interface CategoryProjection {
   readonly id: string;
   readonly name: string;
+  readonly mainTopic?: string;
   readonly description: string;
+  readonly coverImageUrl?: string | null;
 }
 
 export interface ICategoryRepository {

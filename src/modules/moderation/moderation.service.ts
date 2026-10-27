@@ -4,6 +4,7 @@ import { ModerationStatus } from '../../common/enums/moderation-status.enum';
 import { buildAuthorBadge } from '../social/services/posts.service';
 import type { ModerationPendingPageDto } from './dto/moderation-pending-page.dto';
 import type { ModerationStatusUpdatedDto } from './dto/moderation-status-updated.dto';
+import type { ModeratorAccountItemDto } from './dto/moderator-role.dto';
 import type { PendingQueryDto } from './dto/pending-query.dto';
 import type { UpdateModerationStatusDto } from './dto/update-moderation-status.dto';
 import {
@@ -74,6 +75,54 @@ export class ModerationService {
       item_type: updated.itemType,
       status: updated.status,
       updated_at: updated.updatedAt.toISOString(),
+    };
+  }
+
+  async listModerators(): Promise<ModeratorAccountItemDto[]> {
+    if (!this.moderationRepository.listModerators) {
+      return [];
+    }
+    const items = await this.moderationRepository.listModerators();
+    return items.map((item) => ({
+      id: item.id,
+      username: item.username,
+      email: item.email,
+      rol: item.rol,
+      local_role: item.localRole,
+    }));
+  }
+
+  async assignModerator(userAccountId: string): Promise<ModeratorAccountItemDto> {
+    if (!this.moderationRepository.setLocalRole) {
+      throw new NotFoundException('La cuenta de usuario indicada no existe.');
+    }
+    const updated = await this.moderationRepository.setLocalRole(userAccountId, 'MODERATOR');
+    if (!updated) {
+      throw new NotFoundException('La cuenta de usuario indicada no existe.');
+    }
+    return {
+      id: updated.id,
+      username: updated.username,
+      email: updated.email,
+      rol: updated.rol,
+      local_role: updated.localRole,
+    };
+  }
+
+  async revokeModerator(userAccountId: string): Promise<ModeratorAccountItemDto> {
+    if (!this.moderationRepository.setLocalRole) {
+      throw new NotFoundException('La cuenta de usuario indicada no existe.');
+    }
+    const updated = await this.moderationRepository.setLocalRole(userAccountId, null);
+    if (!updated) {
+      throw new NotFoundException('La cuenta de usuario indicada no existe.');
+    }
+    return {
+      id: updated.id,
+      username: updated.username,
+      email: updated.email,
+      rol: updated.rol,
+      local_role: updated.localRole,
     };
   }
 }

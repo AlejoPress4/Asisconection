@@ -15,11 +15,24 @@ export class CommentRepository implements ICommentRepository {
   async create(data: CreateCommentData): Promise<Comment> {
     const entity = this.repository.create({
       postId: data.postId,
+      parentId: data.parentId ?? null,
       deviceId: data.deviceId,
       userAccountId: data.userAccountId,
       content: data.content,
-      status: ModerationStatus.PENDING,
+      status: data.status ?? ModerationStatus.PENDING,
+      rejectionReason: data.rejectionReason ?? null,
     });
     return this.repository.save(entity);
+  }
+
+  async findById(id: string): Promise<Comment | null> {
+    return this.repository.findOne({ where: { id } });
+  }
+
+  async countCommentsByDeviceSince(deviceId: string, since: Date): Promise<number> {
+    return this.repository
+      .createQueryBuilder('c')
+      .where('c.device_id = :deviceId AND c.created_at >= :since', { deviceId, since })
+      .getCount();
   }
 }

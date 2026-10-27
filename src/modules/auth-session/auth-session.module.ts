@@ -3,17 +3,23 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import type { EnvironmentVariables } from '../../config/env.validation';
+import { ActorsController } from './actors.controller';
+import { ActorsService } from './actors.service';
 import { ExternalAuthHttpAdapter } from './adapters/render-auth.http-adapter';
 import { ExternalAuthMockAdapter } from './adapters/render-auth.mock-adapter';
 import { AuthSessionController } from './auth-session.controller';
 import { AuthSessionService } from './auth-session.service';
+import { Actor } from './entities/actor.entity';
+import { ActorConnection } from './entities/actor-connection.entity';
 import { DeviceSession } from './entities/device-session.entity';
 import { UserAccount } from './entities/user-account.entity';
+import { ACTOR_REPOSITORY } from './interfaces/i-actor.repository';
 import { USER_SYNC_REPOSITORY } from './interfaces/i-local-user.repository';
 import {
   EXTERNAL_AUTH_ADAPTER,
   type IExternalAuthAdapter,
 } from './interfaces/i-render-auth.adapter';
+import { ActorRepository } from './repositories/actor.repository';
 import { LocalUserRepository } from './repositories/local-user.repository';
 
 @Module({
@@ -25,9 +31,9 @@ import { LocalUserRepository } from './repositories/local-user.repository';
         timeout: config.get('RENDER_HTTP_TIMEOUT_MS', { infer: true }),
       }),
     }),
-    TypeOrmModule.forFeature([UserAccount, DeviceSession]),
+    TypeOrmModule.forFeature([UserAccount, Actor, ActorConnection, DeviceSession]),
   ],
-  controllers: [AuthSessionController],
+  controllers: [AuthSessionController, ActorsController],
   providers: [
     {
       provide: EXTERNAL_AUTH_ADAPTER,
@@ -46,8 +52,19 @@ import { LocalUserRepository } from './repositories/local-user.repository';
       provide: USER_SYNC_REPOSITORY,
       useClass: LocalUserRepository,
     },
+    {
+      provide: ACTOR_REPOSITORY,
+      useClass: ActorRepository,
+    },
     AuthSessionService,
+    ActorsService,
   ],
-  exports: [AuthSessionService, EXTERNAL_AUTH_ADAPTER, USER_SYNC_REPOSITORY],
+  exports: [
+    AuthSessionService,
+    ActorsService,
+    EXTERNAL_AUTH_ADAPTER,
+    USER_SYNC_REPOSITORY,
+    ACTOR_REPOSITORY,
+  ],
 })
 export class AuthSessionModule {}

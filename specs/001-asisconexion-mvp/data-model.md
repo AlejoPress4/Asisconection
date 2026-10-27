@@ -1,251 +1,209 @@
-# Phase 1 Data Model: AsisConexión MVP (Persistencia Dual PostgreSQL)
+# Phase 1 Data Model: AsisConexión MVP (v2 — Persistencia Única PostgreSQL `ASISCONEXION_DB`)
 
 **Feature**: `001-asisconexion-mvp`
-**Date**: 2026-10-25
-**DataSources**:
-1. **`global_db` (`FOUNDATION_GLOBAL_DB`)**: PostgreSQL externo — **Solo lectura** (`synchronize: false`, `migrationsRun: false`).
-2. **`default` (`ASISCONEXION_DB`)**: PostgreSQL propio — **Lectura/Escritura principal** con migraciones versionadas TypeORM.
+**Date**: 2026-10-27
+**DataSource**:
+- **`default` (`ASISCONEXION_DB`)**: Única base de datos PostgreSQL del proyecto — **Lectura/Escritura principal** con identificadores UUID y migraciones versionadas TypeORM. Se elimina por completo `FOUNDATION_GLOBAL_DB`; la identidad fundacional se sincroniza por HTTP desde el servicio central en Render/Supabase (`https://proyecto-integrador-backend-g2.onrender.com`).
 
 ---
 
-## 1. Diagrama Entidad-Relación (Topología Dual)
+## 1. Diagrama Entidad-Relación (`ASISCONEXION_DB`)
 
 ```mermaid
 erDiagram
-    EXTERNAL_USER {
-        varchar id PK "FOUNDATION_GLOBAL_DB (Read-Only)"
-        varchar username
-        varchar email
-        varchar rol
-    }
+    USER_ACCOUNTS ||--|| ACTORS : "perfil 1:1 (registrados)"
+    USER_ACCOUNTS ||--o{ DEVICE_SESSIONS : "vincula (ON DELETE SET NULL)"
+    ACTORS ||--o{ ACTOR_CONNECTIONS : "solicita / recibe"
+    CATEGORIES ||--o{ POSTS : "agrupa"
+    DEVICE_SESSIONS ||--o{ POSTS : "publica"
+    DEVICE_SESSIONS ||--o{ COMMENTS : "comenta"
+    DEVICE_SESSIONS ||--o{ REACTIONS : "reacciona a post"
+    DEVICE_SESSIONS ||--o{ COMMENT_REACTIONS : "reacciona a comentario"
+    POSTS ||--o{ POST_MEDIA : "multimedia_urls (CASCADE)"
+    POSTS ||--o{ COMMENTS : "tiene (CASCADE)"
+    COMMENTS ||--o{ COMMENTS : "hilos (parent_id CASCADE)"
+    POSTS ||--o{ REACTIONS : "recibe (CASCADE)"
+    COMMENTS ||--o{ COMMENT_REACTIONS : "recibe (CASCADE)"
 
-    USER_ACCOUNT {
+    USER_ACCOUNTS {
         uuid id PK
-        varchar external_user_id UK "Nullable - logical ref to EXTERNAL_USER.id"
+        int external_user_id UK "usuarioId numérico de Render"
         varchar username UK "VARCHAR(80) NOT NULL"
         varchar email UK "VARCHAR(120) NOT NULL"
-        varchar rol "VARCHAR(40) NOT NULL"
+        text[] external_roles "Roles del servicio externo (ADMIN, DONANTE, etc.)"
+        varchar local_role "Nullable: MODERATOR"
         boolean is_active "DEFAULT true"
-        timestamp last_synced_at "NOT NULL"
-        timestamp created_at "NOT NULL"
+        timestamptz last_synced_at "NOT NULL"
+        timestamptz created_at "NOT NULL"
     }
 
-    DEVICE_SESSION {
+    ACTORS {
+        uuid id PK
+        uuid user_account_id FK "UNIQUE NOT NULL ON DELETE CASCADE"
+        varchar primary_role "VARCHAR(40) NOT NULL"
+        varchar first_names "VARCHAR(80) Nullable"
+        varchar last_names "VARCHAR(80) Nullable"
+        varchar avatar_url "VARCHAR(500) Nullable"
+        varchar short_bio "VARCHAR(500) Nullable"
+        timestamptz created_at "NOT NULL"
+        timestamptz updated_at "NOT NULL"
+    }
+
+    ACTOR_CONNECTIONS {
+        uuid id PK
+        uuid requester_actor_id FK "NOT NULL -> actors.id"
+        uuid receiver_actor_id FK "NOT NULL -> actors.id"
+        varchar status "PENDING | ACCEPTED | BLOCKED"
+        timestamptz requested_at "NOT NULL"
+        timestamptz accepted_at "Nullable"
+    }
+
+    DEVICE_SESSIONS {
         uuid id PK
         uuid user_account_id FK "Nullable ON DELETE SET NULL"
         varchar device_token UK "NOT NULL"
         varchar nickname "VARCHAR(50) Nullable"
         varchar role_tag "VARCHAR(40) Nullable"
-        timestamp consent_accepted_at "Nullable in DDL / Required by App Rule (Ley 1581)"
-        timestamp created_at "NOT NULL"
+        timestamptz consent_accepted_at "Required by Ley 1581/1098"
+        timestamptz created_at "NOT NULL"
     }
 
-    CATEGORY {
+    CATEGORIES {
         uuid id PK
         varchar name UK "VARCHAR(80) NOT NULL"
+        varchar main_topic "VARCHAR(120) NOT NULL"
         text description "NOT NULL"
-        timestamp created_at "NOT NULL"
+        varchar cover_image_url "VARCHAR(500) Nullable"
+        timestamptz created_at "NOT NULL"
     }
 
-    POST {
+    POSTS {
         uuid id PK
-        uuid device_id FK "NOT NULL -> DEVICE_SESSION.id"
-        uuid user_account_id FK "Nullable -> USER_ACCOUNT.id"
-        uuid category_id FK "NOT NULL -> CATEGORY.id"
+        uuid device_id FK "NOT NULL -> device_sessions.id"
+        uuid user_account_id FK "Nullable -> user_accounts.id"
+        uuid category_id FK "NOT NULL -> categories.id"
         text content "NOT NULL"
-        varchar image_url "Nullable"
-        enum status "PENDING | APPROVED | REJECTED (DEFAULT PENDING)"
-        timestamp created_at "NOT NULL"
-        timestamp updated_at "NOT NULL"
+        varchar image_url "Nullable (compatibilidad)"
+        enum status "PENDING | APPROVED | REJECTED"
+        varchar rejection_reason "Nullable: AUTO_FILTER | HUMAN"
+        timestamptz created_at "NOT NULL"
+        timestamptz updated_at "NOT NULL"
     }
 
-    COMMENT {
+    POST_MEDIA {
         uuid id PK
-        uuid post_id FK "NOT NULL ON DELETE CASCADE"
-        uuid device_id FK "NOT NULL -> DEVICE_SESSION.id"
-        uuid user_account_id FK "Nullable -> USER_ACCOUNT.id"
+        uuid post_id FK "NOT NULL -> posts.id ON DELETE CASCADE"
+        varchar media_url "VARCHAR(500) NOT NULL"
+        int display_order "DEFAULT 0"
+        timestamptz created_at "NOT NULL"
+    }
+
+    COMMENTS {
+        uuid id PK
+        uuid post_id FK "NOT NULL -> posts.id ON DELETE CASCADE"
+        uuid parent_id FK "Nullable -> comments.id ON DELETE CASCADE"
+        uuid device_id FK "NOT NULL -> device_sessions.id"
+        uuid user_account_id FK "Nullable -> user_accounts.id"
         text content "NOT NULL"
-        enum status "PENDING | APPROVED | REJECTED (DEFAULT PENDING)"
-        timestamp created_at "NOT NULL"
+        enum status "PENDING | APPROVED | REJECTED"
+        varchar rejection_reason "Nullable: AUTO_FILTER | HUMAN"
+        timestamptz created_at "NOT NULL"
     }
 
-    REACTION {
+    REACTIONS {
         uuid id PK
-        uuid post_id FK "NOT NULL ON DELETE CASCADE"
-        uuid device_id FK "NOT NULL -> DEVICE_SESSION.id"
-        uuid user_account_id FK "Nullable -> USER_ACCOUNT.id"
-        varchar type "VARCHAR(20) LIKE | SUPPORT | THANKS"
-        timestamp created_at "NOT NULL"
+        uuid post_id FK "NOT NULL -> posts.id ON DELETE CASCADE"
+        uuid device_id FK "NOT NULL -> device_sessions.id"
+        uuid user_account_id FK "Nullable -> user_accounts.id"
+        varchar type "LIKE | SUPPORT | THANKS"
+        timestamptz created_at "NOT NULL"
     }
 
-    REDIRECTION_LINK {
+    COMMENT_REACTIONS {
         uuid id PK
-        varchar project_name "VARCHAR(100) NOT NULL"
-        varchar url "VARCHAR NOT NULL"
-        text description "NOT NULL"
-        boolean is_active "DEFAULT true"
-        timestamp created_at "NOT NULL"
+        uuid comment_id FK "NOT NULL -> comments.id ON DELETE CASCADE"
+        uuid device_id FK "NOT NULL -> device_sessions.id"
+        uuid user_account_id FK "Nullable -> user_accounts.id"
+        varchar type "LIKE | SUPPORT | THANKS"
+        timestamptz created_at "NOT NULL"
     }
-
-    FAQ_KNOWLEDGE {
-        uuid id PK
-        varchar question "VARCHAR NOT NULL"
-        text answer "NOT NULL"
-        varchar category "VARCHAR(60) NOT NULL"
-        timestamp created_at "NOT NULL"
-    }
-
-    EXTERNAL_USER ||--o| USER_ACCOUNT : "sincroniza (lógico entre BDs)"
-    USER_ACCOUNT ||--o{ DEVICE_SESSION : "vincula (ON DELETE SET NULL)"
-    USER_ACCOUNT ||--o{ POST : "autor registrado (opcional)"
-    USER_ACCOUNT ||--o{ COMMENT : "autor registrado (opcional)"
-    USER_ACCOUNT ||--o{ REACTION : "autor registrado (opcional)"
-    DEVICE_SESSION ||--o{ POST : "publica desde dispositivo"
-    DEVICE_SESSION ||--o{ COMMENT : "comenta desde dispositivo"
-    DEVICE_SESSION ||--o{ REACTION : "reacciona desde dispositivo"
-    CATEGORY ||--o{ POST : "clasifica"
-    POST ||--o{ COMMENT : "contiene (ON DELETE CASCADE)"
-    POST ||--o{ REACTION : "recibe (ON DELETE CASCADE)"
 ```
 
 ---
 
-## 2. Entidad Externa: `FOUNDATION_GLOBAL_DB` (`DataSource: 'global_db'`)
+## 2. Especificación de Tablas (`ASISCONEXION_DB`)
 
-### 2.1 `GlobalUserViewEntity` -> Tabla/Vista `external_user` (Configurable por entorno)
-- **Ubicación en código**: `src/database/external-entities/global-user.view-entity.ts`
-- **Modo de acceso**: Solo lectura (`SELECT` únicamente a través de `GlobalUserRepository`).
-- **Atributos**:
-  | Campo | Tipo PostgreSQL | Restricciones | Descripción |
-  |-------|----------------|---------------|-------------|
-  | `id` | `VARCHAR` | PK (lectura) | Identificador único del usuario en la BD General (o `username` si actúa como clave natural). |
-  | `username` | `VARCHAR` | NOT NULL | Nombre de usuario fundacional (ej. `"maria.acudiente"`). |
-  | `email` | `VARCHAR` | NOT NULL | Correo electrónico registrado en el ecosistema general. |
-  | `rol` | `VARCHAR` | NOT NULL | Rol maestro (`ACUDIENTE`, `ADMIN`, `VOLUNTARIO`, `INVERSOR`, etc.). |
-
----
-
-## 3. Entidades Propias Persistentes: `ASISCONEXION_DB` (`DataSource: 'default'`)
-
-### 3.1 `UserAccount` (`user_accounts`)
+### 2.1 `UserAccount` (`user_accounts`)
 - **Ubicación**: `src/modules/auth-session/entities/user-account.entity.ts`
-- **Regla de seguridad constitucional (ISP)**: **Jamás** incluye columna ni propiedad `clave` / `password_hash`.
-- **Columnas e Índices**:
-  | Columna | Tipo | Nulabilidad / Default | Restricciones / Índices |
-  |---------|------|-----------------------|-------------------------|
-  | `id` | `UUID` | NOT NULL, `uuid_generate_v4()` | `PK` |
-  | `external_user_id` | `VARCHAR(120)` | NULLABLE | `UNIQUE` (`UQ_user_accounts_external_user_id`) |
-  | `username` | `VARCHAR(80)` | NOT NULL | `UNIQUE` (`UQ_user_accounts_username`) |
-  | `email` | `VARCHAR(120)` | NOT NULL | `UNIQUE` (`UQ_user_accounts_email`) |
-  | `rol` | `VARCHAR(40)` | NOT NULL | Valores esperados: `ACUDIENTE`, `ADMIN`, `VOLUNTARIO`, `INVERSOR`, `BENEFICIARIO` |
-  | `is_active` | `BOOLEAN` | NOT NULL, `DEFAULT true` | Índice de filtrado de cuentas activas |
-  | `last_synced_at` | `TIMESTAMPTZ` | NOT NULL | Actualizado en cada `/v1/auth/registro` o `/v1/auth/sync-session` |
-  | `created_at` | `TIMESTAMPTZ` | NOT NULL, `DEFAULT now()` | `@CreateDateColumn()` |
+- **Columnas**:
+  | Columna | Tipo PostgreSQL | Nulabilidad / Default | Descripción |
+  |---------|----------------|-----------------------|-------------|
+  | `id` | `UUID` | NOT NULL, PK | Identificador local UUID |
+  | `external_user_id` | `INTEGER` | NULLABLE, UNIQUE | `usuarioId` numérico retornado por el servicio en Render |
+  | `username` | `VARCHAR(80)` | NOT NULL, UNIQUE | Nombre de usuario sincronizado |
+  | `email` | `VARCHAR(120)` | NOT NULL, UNIQUE | Correo electrónico sincronizado |
+  | `rol` | `VARCHAR(40)` | NOT NULL | Rol principal para compatibilidad rápida (primer elemento de `external_roles`) |
+  | `external_roles` | `TEXT[]` | NOT NULL, `DEFAULT '{}'` | Arreglo de roles provenientes de Render (`['ADMIN']`, `['DONANTE']`, etc.) |
+  | `local_role` | `VARCHAR(40)` | NULLABLE | Rol global local en AsisConexión (`'MODERATOR'` o `NULL`) asignado solo por un `ADMIN` |
+  | `is_active` | `BOOLEAN` | NOT NULL, `DEFAULT true` | Estado de la cuenta local |
+  | `last_synced_at` | `TIMESTAMPTZ` | NOT NULL | Marca de última validación con Render |
+  | `created_at` | `TIMESTAMPTZ` | NOT NULL, `DEFAULT now()` | Fecha de alta local |
 
-### 3.2 `DeviceSession` (`device_sessions`)
-- **Ubicación**: `src/modules/auth-session/entities/device-session.entity.ts`
-- **Regla legal (Ley 1581 / Ley 1098)**: La lógica de aplicación exige `accept_consent === true` y asigna `consent_accepted_at = NOW()` al crear cualquier sesión o vincular actividad con imágenes de menores/beneficiarios.
-- **Columnas, Claves Foráneas e Índices**:
-  | Columna | Tipo | Nulabilidad / Default | Restricciones / Relaciones |
-  |---------|------|-----------------------|----------------------------|
-  | `id` | `UUID` | NOT NULL, `uuid_generate_v4()` | `PK` |
-  | `user_account_id` | `UUID` | NULLABLE | `FK -> user_accounts.id` (`ON DELETE SET NULL`), `IDX_device_sessions_user_account_id` |
-  | `device_token` | `VARCHAR(512)` | NOT NULL | `UNIQUE` (`UQ_device_sessions_device_token`) |
-  | `nickname` | `VARCHAR(50)` | NULLABLE | Si `user_account_id != null`, toma `UserAccount.username` por defecto |
-  | `role_tag` | `VARCHAR(40)` | NULLABLE | Si `user_account_id != null`, toma `UserAccount.rol` por defecto |
-  | `consent_accepted_at` | `TIMESTAMPTZ` | NULLABLE (DDL) / Requerido (Dominio) | Trazabilidad obligatoria Ley 1581 de 2012 y Ley 1098 de 2006 |
-  | `created_at` | `TIMESTAMPTZ` | NOT NULL, `DEFAULT now()` | `@CreateDateColumn()` |
+### 2.2 `Actor` (`actors`)
+- **Ubicación**: `src/modules/auth-session/entities/actor.entity.ts`
+- **Regla de negocio**: Exclusivo para usuarios registrados (relación 1:1 con `UserAccount`). Las sesiones anónimas no tienen registro en `actors`.
+- **Columnas**:
+  | Columna | Tipo PostgreSQL | Nulabilidad / Default | Descripción |
+  |---------|----------------|-----------------------|-------------|
+  | `id` | `UUID` | NOT NULL, PK | Identificador del perfil Actor |
+  | `user_account_id` | `UUID` | NOT NULL, UNIQUE, FK | Referencia 1:1 a `user_accounts.id` (`ON DELETE CASCADE`) |
+  | `primary_role` | `VARCHAR(40)` | NOT NULL | Rol comunitario visible del actor |
+  | `first_names` | `VARCHAR(80)` | NULLABLE | Nombres del usuario |
+  | `last_names` | `VARCHAR(80)` | NULLABLE | Apellidos del usuario |
+  | `avatar_url` | `VARCHAR(500)` | NULLABLE | URL de imagen de avatar |
+  | `short_bio` | `VARCHAR(500)` | NULLABLE | Biografía corta |
+  | `created_at` | `TIMESTAMPTZ` | NOT NULL, `DEFAULT now()` | Creación del perfil |
+  | `updated_at` | `TIMESTAMPTZ` | NOT NULL, `DEFAULT now()` | Última actualización |
 
-### 3.3 `Category` (`categories`)
+### 2.3 `ActorConnection` (`actor_connections`)
+- **Ubicación**: `src/modules/auth-session/entities/actor-connection.entity.ts`
+- **Columnas**:
+  | Columna | Tipo PostgreSQL | Nulabilidad / Default | Descripción |
+  |---------|----------------|-----------------------|-------------|
+  | `id` | `UUID` | NOT NULL, PK | Identificador de la conexión |
+  | `requester_actor_id` | `UUID` | NOT NULL, FK | `actors.id` que envía la solicitud (`ON DELETE CASCADE`) |
+  | `receiver_actor_id` | `UUID` | NOT NULL, FK | `actors.id` que recibe la solicitud (`ON DELETE CASCADE`) |
+  | `status` | `VARCHAR(20)` | NOT NULL, `DEFAULT 'PENDING'` | `'PENDING' | 'ACCEPTED' | 'BLOCKED'` |
+  | `requested_at` | `TIMESTAMPTZ` | NOT NULL, `DEFAULT now()` | Fecha de solicitud |
+  | `accepted_at` | `TIMESTAMPTZ` | NULLABLE | Fecha de aceptación |
+  - **Restricción única**: `UQ_actor_connections_pair UNIQUE (requester_actor_id, receiver_actor_id)`.
+
+### 2.4 `Category` (`categories`)
 - **Ubicación**: `src/modules/social/entities/category.entity.ts`
-- **Columnas**:
-  | Columna | Tipo | Nulabilidad / Default | Restricciones |
-  |---------|------|-----------------------|---------------|
-  | `id` | `UUID` | NOT NULL, `uuid_generate_v4()` | `PK` |
-  | `name` | `VARCHAR(80)` | NOT NULL | `UNIQUE` (`UQ_categories_name`) |
-  | `description` | `TEXT` | NOT NULL | Descripción temática del foro |
-  | `created_at` | `TIMESTAMPTZ` | NOT NULL, `DEFAULT now()` | `@CreateDateColumn()` |
+- **Regla**: Todos los foros son públicos (no existen foros privados).
+- **Columnas**: `id` (`UUID PK`), `name` (`VARCHAR(80) UNIQUE`), `main_topic` (`VARCHAR(120) NOT NULL DEFAULT 'General'`), `description` (`TEXT NOT NULL`), `cover_image_url` (`VARCHAR(500) NULLABLE`), `created_at` (`TIMESTAMPTZ`).
 
-### 3.4 `Post` (`posts`)
-- **Ubicación**: `src/modules/social/entities/post.entity.ts`
-- **Enum `ModerationStatus`**: `'PENDING' | 'APPROVED' | 'REJECTED'`
-- **Columnas, Claves Foráneas e Índices**:
-  | Columna | Tipo | Nulabilidad / Default | Restricciones / Índices |
-  |---------|------|-----------------------|-------------------------|
-  | `id` | `UUID` | NOT NULL, `uuid_generate_v4()` | `PK` |
-  | `device_id` | `UUID` | NOT NULL | `FK -> device_sessions.id` (`ON DELETE RESTRICT`) |
-  | `user_account_id` | `UUID` | NULLABLE | `FK -> user_accounts.id` (`ON DELETE SET NULL`) |
-  | `category_id` | `UUID` | NOT NULL | `FK -> categories.id` (`ON DELETE RESTRICT`) |
-  | `content` | `TEXT` | NOT NULL | Validado `1..2000` caracteres sin vacío |
-  | `image_url` | `VARCHAR(500)` | NULLABLE | URL HTTPS válida; exige `consent_accepted_at` no nulo en `DeviceSession` |
-  | `status` | `ENUM` | NOT NULL, `DEFAULT 'PENDING'` | `IDX_posts_status`, compuesto `IDX_posts_status_category_created (status, category_id, created_at DESC)` |
-  | `created_at` | `TIMESTAMPTZ` | NOT NULL, `DEFAULT now()` | `IDX_posts_created_at` |
-  | `updated_at` | `TIMESTAMPTZ` | NOT NULL, `DEFAULT now()` | `@UpdateDateColumn()` |
+### 2.5 `Post` (`posts`) y `PostMedia` (`post_media`)
+- **Ubicación**: `src/modules/social/entities/post.entity.ts` y `post-media.entity.ts`
+- **`Post`**: Añade `rejection_reason` (`VARCHAR(40) NULLABLE`: `'AUTO_FILTER' | 'HUMAN' | null`) y relación `OneToMany` con `PostMedia` (`media`). Conserva `image_url` sincronizada con la primera URL de `media_urls` para compatibilidad retroactiva.
+- **`PostMedia`**: Almacena el arreglo de URLs multimedia (`id` UUID, `post_id` FK `ON DELETE CASCADE`, `media_url` `VARCHAR(500) NOT NULL`, `display_order` `INT DEFAULT 0`, `created_at`).
 
-### 3.5 `Comment` (`comments`)
-- **Ubicación**: `src/modules/social/entities/comment.entity.ts`
-- **Columnas, Claves Foráneas e Índices**:
-  | Columna | Tipo | Nulabilidad / Default | Restricciones / Índices |
-  |---------|------|-----------------------|-------------------------|
-  | `id` | `UUID` | NOT NULL, `uuid_generate_v4()` | `PK` |
-  | `post_id` | `UUID` | NOT NULL | `FK -> posts.id` (`ON DELETE CASCADE`) |
-  | `device_id` | `UUID` | NOT NULL | `FK -> device_sessions.id` (`ON DELETE RESTRICT`) |
-  | `user_account_id` | `UUID` | NULLABLE | `FK -> user_accounts.id` (`ON DELETE SET NULL`) |
-  | `content` | `TEXT` | NOT NULL | Validado `1..1000` caracteres |
-  | `status` | `ENUM` | NOT NULL, `DEFAULT 'PENDING'` | `IDX_comments_status`, compuesto `IDX_comments_post_status_created (post_id, status, created_at ASC)` |
-  | `created_at` | `TIMESTAMPTZ` | NOT NULL, `DEFAULT now()` | `@CreateDateColumn()` |
-
-### 3.6 `Reaction` (`reactions`)
-- **Ubicación**: `src/modules/social/entities/reaction.entity.ts`
-- **Enum `ReactionType`**: `'LIKE' | 'SUPPORT' | 'THANKS'`
-- **Columnas y Restricciones**:
-  | Columna | Tipo | Nulabilidad / Default | Restricciones / Índices |
-  |---------|------|-----------------------|-------------------------|
-  | `id` | `UUID` | NOT NULL, `uuid_generate_v4()` | `PK` |
-  | `post_id` | `UUID` | NOT NULL | `FK -> posts.id` (`ON DELETE CASCADE`) |
-  | `device_id` | `UUID` | NOT NULL | `FK -> device_sessions.id` (`ON DELETE CASCADE`) |
-  | `user_account_id` | `UUID` | NULLABLE | `FK -> user_accounts.id` (`ON DELETE SET NULL`) |
-  | `type` | `VARCHAR(20)` | NOT NULL | Valores permitidos: `LIKE`, `SUPPORT`, `THANKS` |
-  | `created_at` | `TIMESTAMPTZ` | NOT NULL, `DEFAULT now()` | `@CreateDateColumn()` |
-  - **Restricción única obligatoria**: `UQ_reactions_post_device_type UNIQUE (post_id, device_id, type)`.
-
-### 3.7 `RedirectionLink` (`redirection_links`)
-- **Ubicación**: `src/modules/directory/entities/redirection-link.entity.ts`
-- **Columnas**:
-  | Columna | Tipo | Nulabilidad / Default | Restricciones / Índices |
-  |---------|------|-----------------------|-------------------------|
-  | `id` | `UUID` | NOT NULL, `uuid_generate_v4()` | `PK` |
-  | `project_name` | `VARCHAR(100)` | NOT NULL | Ej. `SUMA 21`, `AULA UP`, `SAGA-UP` |
-  | `url` | `VARCHAR(500)` | NOT NULL | URL HTTPS externa limpia (apertura nativa sin iframe/WebView superpuesto) |
-  | `description` | `TEXT` | NOT NULL | Descripción breve para tarjeta ligera |
-  | `is_active` | `BOOLEAN` | NOT NULL, `DEFAULT true` | `IDX_redirection_links_is_active` |
-  | `created_at` | `TIMESTAMPTZ` | NOT NULL, `DEFAULT now()` | `@CreateDateColumn()` |
-
-### 3.8 `FaqKnowledge` (`faq_knowledge`)
-- **Ubicación**: `src/modules/assistant/entities/faq-knowledge.entity.ts`
-- **Columnas**:
-  | Columna | Tipo | Nulabilidad / Default | Restricciones / Índices |
-  |---------|------|-----------------------|-------------------------|
-  | `id` | `UUID` | NOT NULL, `uuid_generate_v4()` | `PK` |
-  | `question` | `VARCHAR(300)` | NOT NULL | Pregunta frecuente oficial |
-  | `answer` | `TEXT` | NOT NULL | Respuesta orientativa verificada por la Fundación |
-  | `category` | `VARCHAR(60)` | NOT NULL | `IDX_faq_knowledge_category` |
-  | `created_at` | `TIMESTAMPTZ` | NOT NULL, `DEFAULT now()` | `@CreateDateColumn()` |
+### 2.6 `Comment` (`comments`) y `CommentReaction` (`comment_reactions`)
+- **Ubicación**: `src/modules/social/entities/comment.entity.ts` y `comment-reaction.entity.ts`
+- **`Comment`**: Añade `parent_id` (`UUID NULLABLE FK -> comments.id ON DELETE CASCADE`) para soportar hilos de respuesta y `rejection_reason` (`VARCHAR(40) NULLABLE`: `'AUTO_FILTER' | 'HUMAN' | null`).
+- **`CommentReaction`**: Permite reaccionar (`LIKE`, `SUPPORT`, `THANKS`) a comentarios aprobados con unicidad `UQ_comment_reactions_comment_device_type UNIQUE (comment_id, device_id, type)`.
 
 ---
 
-## 4. Máquina de Estados de Moderación Humana (RN-02)
-
-Aplica de forma idéntica a `Post.status` y `Comment.status`:
+## 3. Máquina de Estados de Moderación en Dos Capas (`ContentFilterService` + `RN-02`)
 
 ```mermaid
 stateDiagram-v2
-    [*] --> PENDING : POST /v1/posts o POST /v1/posts/:postId/comments (Forzado por Servicio)
-    PENDING --> APPROVED : PATCH /v1/admin/moderation/.../status (Solo ADMIN verificado)
-    PENDING --> REJECTED : PATCH /v1/admin/moderation/.../status (Solo ADMIN verificado)
-    APPROVED --> REJECTED : PATCH /v1/admin/moderation/.../status (Retiro posterior por ADMIN)
-    REJECTED --> APPROVED : PATCH /v1/admin/moderation/.../status (Rectificación por ADMIN)
+    [*] --> EvaluacionFiltro : POST /v1/posts o POST /v1/posts/:postId/comments
+    EvaluacionFiltro --> REJECTED : Infringe IContentRule (rejection_reason = AUTO_FILTER)
+    EvaluacionFiltro --> PENDING : Pasa filtro automático (rejection_reason = null)
+    PENDING --> APPROVED : PATCH /v1/admin/moderation/.../status (ADMIN o MODERATOR)
+    PENDING --> REJECTED : PATCH /v1/admin/moderation/.../status (ADMIN o MODERATOR, rejection_reason = HUMAN)
+    APPROVED --> REJECTED : Retiro posterior (ADMIN o MODERATOR, rejection_reason = HUMAN)
+    REJECTED --> APPROVED : Rectificación manual (ADMIN o MODERATOR, rejection_reason = null)
 ```
-
-- **Invariante 1**: Ningún DTO de creación (`CreatePostDto`, `CreateCommentDto`) acepta propiedad `status` (`forbidNonWhitelisted: true`).
-- **Invariante 2**: Toda consulta pública (`GET /v1/posts`, comentarios asociados, reacciones permitidas) filtra obligatoriamente `WHERE status = 'APPROVED'`.

@@ -21,7 +21,9 @@ export class CategoriesService {
       data: items.map((item) => ({
         id: item.id,
         name: item.name,
+        main_topic: item.mainTopic ?? 'General',
         description: item.description,
+        cover_image_url: item.coverImageUrl ?? null,
       })),
       meta: buildPaginationMeta(query.page, query.limit, total),
     };

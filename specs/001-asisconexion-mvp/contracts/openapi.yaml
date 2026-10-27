@@ -1,25 +1,25 @@
 openapi: 3.1.0
 info:
   title: AsisConexión Backend API
-  version: 1.0.0
+  version: 2.0.0
   description: >-
-    Contrato OpenAPI-First (SDD) del Monolito Modular AsisConexión Backend.
-    Opera con persistencia dual PostgreSQL (ASISCONEXION_DB + FOUNDATION_GLOBAL_DB)
-    e integración HTTP activa con el servicio central de autenticación en Render.
+    Contrato OpenAPI-First (SDD v2) del Monolito Modular AsisConexión Backend.
+    Opera con persistencia única PostgreSQL (ASISCONEXION_DB) e integración HTTP
+    con el servicio central de identidad en Render/Supabase.
 servers:
   - url: http://localhost:3000
     description: Servidor de desarrollo local
 tags:
   - name: AuthSession
-    description: Registro híbrido con Render, sincronización con BD General y sesiones por dispositivo
+    description: Login y registro vía Render/Supabase, sesiones por dispositivo y perfiles Actor / Conexiones
   - name: Social
-    description: Categorías de foros, publicaciones aprobadas, creación en PENDING, comentarios y reacciones
+    description: Categorías públicas, publicaciones con múltiples URLs multimedia, hilos de comentarios y reacciones
   - name: Moderation
-    description: Cola de moderación humana obligatoria (RN-02) exclusiva para rol ADMIN
+    description: Filtro automático (ContentFilterService), moderación humana (ADMIN/MODERATOR) y gestión de moderadores globales
   - name: Directory
     description: Enlaces limpios hacia módulos satélites (SUMA 21, AULA UP, SAGA-UP)
   - name: Assistant
-    description: Orientación FAQ Fase 1 con disclaimer y escalamiento humano a WhatsApp
+    description: Orientación FAQ con disclaimer y escalamiento humano a WhatsApp (IAssistantEngineProvider)
 
 components:
   securitySchemes:
@@ -138,20 +138,26 @@ components:
 
     SyncSessionDto:
       type: object
-      required: [identifier, clave, accept_consent]
+      required: [accept_consent]
       additionalProperties: false
       properties:
+        email:
+          type: string
+          format: email
+          maxLength: 120
+          description: Correo electrónico registrado en el servicio central de autenticación (Render / Supabase).
+          example: maria@prueba.com
         identifier:
           type: string
           maxLength: 120
-          description: Username o email registrado en el ecosistema general fundacional.
-          example: maria.acudiente
+          description: Alias opcional (email o username) para compatibilidad.
+          example: maria@prueba.com
         clave:
           type: string
-          minLength: 8
+          minLength: 6
           maxLength: 128
           writeOnly: true
-          example: ClaveAcudiente2026
+          example: ClaveAsisco2026
         accept_consent:
           type: boolean
           const: true
@@ -165,6 +171,9 @@ components:
         id:
           type: string
           format: uuid
+        external_user_id:
+          type: [integer, 'null']
+          example: 42
         username:
           type: string
           example: maria.acudiente
@@ -175,19 +184,121 @@ components:
         rol:
           type: string
           example: ACUDIENTE
+        external_roles:
+          type: array
+          items:
+            type: string
+          example: [ACUDIENTE]
+        local_role:
+          type: [string, 'null']
+          enum: [MODERATOR, null]
+          example: null
 
     AuthSessionResponseDto:
       type: object
-      required: [user, device_token, synced_with_global_db]
+      required: [user, device_token, synced_with_external_auth]
       properties:
         user:
           $ref: '#/components/schemas/PublicUserDto'
         device_token:
           type: string
           example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-        synced_with_global_db:
+        synced_with_external_auth:
           type: boolean
           example: true
+
+    ActorProfileResponseDto:
+      type: object
+      required: [id, user_account_id, primary_role, first_names, last_names, avatar_url, short_bio, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_account_id:
+          type: string
+          format: uuid
+        primary_role:
+          type: string
+          example: ACUDIENTE
+        first_names:
+          type: [string, 'null']
+          example: María Fernanda
+        last_names:
+          type: [string, 'null']
+          example: Gómez Pérez
+        avatar_url:
+          type: [string, 'null']
+          format: uri
+        short_bio:
+          type: [string, 'null']
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UpdateActorProfileDto:
+      type: object
+      additionalProperties: false
+      properties:
+        primary_role:
+          type: string
+          maxLength: 50
+        first_names:
+          type: string
+          maxLength: 100
+        last_names:
+          type: string
+          maxLength: 100
+        avatar_url:
+          type: string
+          format: uri
+          maxLength: 500
+        short_bio:
+          type: string
+          maxLength: 300
+
+    CreateActorConnectionDto:
+      type: object
+      required: [receiver_actor_id]
+      additionalProperties: false
+      properties:
+        receiver_actor_id:
+          type: string
+          format: uuid
+
+    UpdateActorConnectionStatusDto:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ACCEPTED, BLOCKED]
+
+    ActorConnectionItemDto:
+      type: object
+      required: [id, requester_actor_id, receiver_actor_id, status, requested_at, accepted_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        requester_actor_id:
+          type: string
+          format: uuid
+        receiver_actor_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [PENDING, ACCEPTED, BLOCKED]
+        requested_at:
+          type: string
+          format: date-time
+        accepted_at:
+          type: [string, 'null']
+          format: date-time
 
     InitAnonymousSessionDto:
       type: object
@@ -219,7 +330,7 @@ components:
 
     CategoryItemDto:
       type: object
-      required: [id, name, description]
+      required: [id, name, main_topic, description, cover_image_url]
       properties:
         id:
           type: string
@@ -227,9 +338,15 @@ components:
         name:
           type: string
           example: Apoyo Pedagógico
+        main_topic:
+          type: string
+          example: Educación
         description:
           type: string
           example: Espacio para compartir experiencias educativas y acompañamiento familiar.
+        cover_image_url:
+          type: [string, 'null']
+          format: uri
 
     AuthorBadgeDto:
       type: object
@@ -247,10 +364,13 @@ components:
 
     ApprovedCommentItemDto:
       type: object
-      required: [id, content, author, created_at]
+      required: [id, parent_id, content, author, created_at]
       properties:
         id:
           type: string
+          format: uuid
+        parent_id:
+          type: [string, 'null']
           format: uuid
         content:
           type: string
@@ -262,7 +382,7 @@ components:
 
     PublicPostItemDto:
       type: object
-      required: [id, category_id, content, author, reactions_summary, comments_count, created_at]
+      required: [id, category_id, content, media_urls, author, reactions_summary, comments_count, created_at]
       properties:
         id:
           type: string
@@ -275,6 +395,11 @@ components:
         image_url:
           type: [string, 'null']
           format: uri
+        media_urls:
+          type: array
+          items:
+            type: string
+            format: uri
         author:
           $ref: '#/components/schemas/AuthorBadgeDto'
         reactions_summary:
@@ -313,18 +438,28 @@ components:
           type: string
           format: uri
           maxLength: 500
+        media_urls:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+            format: uri
 
     PendingSubmissionResponseDto:
       type: object
-      required: [id, status, message, created_at]
+      required: [id, status, rejection_reason, message, created_at]
       properties:
         id:
           type: string
           format: uuid
         status:
           type: string
-          enum: [PENDING]
+          enum: [PENDING, REJECTED]
           example: PENDING
+        rejection_reason:
+          type: [string, 'null']
+          enum: [AUTO_FILTER, HUMAN, null]
+          example: null
         message:
           type: string
           example: Contenido recibido y enviado a moderación humana antes de su publicación.
@@ -341,6 +476,9 @@ components:
           type: string
           minLength: 1
           maxLength: 1000
+        parent_id:
+          type: string
+          format: uuid
 
     ToggleReactionDto:
       type: object
@@ -365,6 +503,37 @@ components:
         active:
           type: boolean
           description: true si la reacción quedó activa; false si fue retirada.
+
+    ToggleCommentReactionResponseDto:
+      type: object
+      required: [comment_id, type, active]
+      properties:
+        comment_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [LIKE, SUPPORT, THANKS]
+        active:
+          type: boolean
+
+    ModeratorUserItemDto:
+      type: object
+      required: [id, username, email, rol, local_role]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        rol:
+          type: string
+        local_role:
+          type: [string, 'null']
+          enum: [MODERATOR, null]
 
     ModerationPendingItemDto:
       type: object
@@ -519,10 +688,40 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
 
+  /v1/auth/login:
+    post:
+      tags: [AuthSession]
+      summary: Autentica usuario contra el servicio central en Render (POST /auth/login) y emite device_token local
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncSessionDto'
+      responses:
+        '200':
+          description: Cuenta sincronizada en ASISCONEXION_DB, perfil Actor asegurado y device_token emitido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponseDto'
+        '401':
+          description: Credenciales inválidas o cuenta inactiva
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '502':
+          description: Indisponibilidad o rate-limit (429) en Render
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
   /v1/auth/sync-session:
     post:
       tags: [AuthSession]
-      summary: Autentica/verifica usuario existente en BD General/Render y sincroniza sesión local
+      summary: Alias de login sincronizado contra el servicio central en Render
       requestBody:
         required: true
         content:
@@ -548,6 +747,133 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+
+  /v1/actors/me:
+    get:
+      tags: [AuthSession]
+      summary: Obtiene el perfil extendido Actor del usuario registrado actual
+      security:
+        - DeviceSessionBearer: []
+      responses:
+        '200':
+          description: Perfil Actor 1:1 del usuario registrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorProfileResponseDto'
+        '403':
+          description: Las sesiones anónimas no poseen perfil Actor
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+    patch:
+      tags: [AuthSession]
+      summary: Actualiza el perfil extendido Actor del usuario registrado actual
+      security:
+        - DeviceSessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateActorProfileDto'
+      responses:
+        '200':
+          description: Perfil Actor actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorProfileResponseDto'
+
+  /v1/actors/{id}:
+    get:
+      tags: [AuthSession]
+      summary: Consulta el perfil público de un Actor registrado por su UUID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Perfil público del Actor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorProfileResponseDto'
+
+  /v1/connections:
+    get:
+      tags: [AuthSession]
+      summary: Lista las conexiones del Actor del usuario registrado actual
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Lista paginada de conexiones
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ActorConnectionItemDto'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMetaDto'
+    post:
+      tags: [AuthSession]
+      summary: Envía una solicitud de conexión entre actores registrados (status = PENDING)
+      security:
+        - DeviceSessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateActorConnectionDto'
+      responses:
+        '201':
+          description: Solicitud de conexión creada en estado PENDING
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorConnectionItemDto'
+
+  /v1/connections/{id}:
+    patch:
+      tags: [AuthSession]
+      summary: Acepta (ACCEPTED) o bloquea (BLOCKED) una conexión entre actores registrados
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateActorConnectionStatusDto'
+      responses:
+        '200':
+          description: Estado de conexión actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorConnectionItemDto'
 
   /v1/sessions/anonymous:
     post:
@@ -708,6 +1034,89 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ToggleReactionResponseDto'
+
+  /v1/comments/{id}/reactions:
+    post:
+      tags: [Social]
+      summary: Registra o elimina (toggle) una reacción sobre un comentario aprobado (LIKE, SUPPORT, THANKS)
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ToggleReactionDto'
+      responses:
+        '200':
+          description: Estado resultante de la reacción sobre el comentario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToggleCommentReactionResponseDto'
+
+  /v1/admin/moderators:
+    get:
+      tags: [Moderation]
+      summary: Lista los usuarios con rol global MODERATOR (Exclusivo ADMIN)
+      security:
+        - DeviceSessionBearer: []
+      responses:
+        '200':
+          description: Lista de moderadores globales activos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ModeratorUserItemDto'
+
+  /v1/admin/moderators/{userAccountId}:
+    put:
+      tags: [Moderation]
+      summary: Asigna el rol global MODERATOR a un usuario registrado (Exclusivo ADMIN)
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - name: userAccountId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Rol MODERATOR asignado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModeratorUserItemDto'
+    delete:
+      tags: [Moderation]
+      summary: Revoca el rol global MODERATOR de un usuario (Exclusivo ADMIN)
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - name: userAccountId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Rol MODERATOR revocado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModeratorUserItemDto'
 
   /v1/admin/moderation/pending:
     get:

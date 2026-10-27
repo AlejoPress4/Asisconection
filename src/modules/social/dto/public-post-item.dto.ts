@@ -5,6 +5,9 @@ export class ApprovedCommentItemDto {
   @ApiProperty({ format: 'uuid' })
   id!: string;
 
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  parent_id?: string | null;
+
   @ApiProperty()
   content!: string;
 
@@ -38,6 +41,9 @@ export class PublicPostItemDto {
 
   @ApiPropertyOptional({ type: String, format: 'uri', nullable: true })
   image_url!: string | null;
+
+  @ApiPropertyOptional({ type: [String] })
+  media_urls?: string[];
 
   @ApiProperty({ type: () => AuthorBadgeDto })
   author!: AuthorBadgeDto;

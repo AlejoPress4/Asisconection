@@ -1,4 +1,3 @@
-import './common/types/express';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
@@ -47,9 +46,9 @@ export async function bootstrap(): Promise<void> {
   const swaggerConfig = new DocumentBuilder()
     .setTitle('AsisConexión Backend API')
     .setDescription(
-      'Contrato OpenAPI-First (SDD) del Monolito Modular AsisConexión Backend. Opera con persistencia dual PostgreSQL (ASISCONEXION_DB + FOUNDATION_GLOBAL_DB) e integración HTTP activa con el servicio central de autenticación en Render.',
+      'Contrato OpenAPI-First (SDD) del Monolito Modular AsisConexión Backend v2.0.0. Opera con persistencia única PostgreSQL (ASISCONEXION_DB), integración HTTP con el servicio central de autenticación en Render/Supabase y moderación en dos capas.',
     )
-    .setVersion('1.0.0')
+    .setVersion('2.0.0')
     .addBearerAuth(
       {
         type: 'http',

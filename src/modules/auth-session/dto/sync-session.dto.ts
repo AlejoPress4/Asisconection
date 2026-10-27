@@ -1,18 +1,38 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { Equals, IsBoolean, IsNotEmpty, IsString, Length, MaxLength } from 'class-validator';
+import {
+  Equals,
+  IsBoolean,
+  IsNotEmpty,
+  IsString,
+  Length,
+  MaxLength,
+  ValidateIf,
+} from 'class-validator';
 import { preserveRawConsentValue } from '../../../common/utils/strict-boolean.util';
 
 export class SyncSessionDto {
-  @ApiProperty({
+  @ApiPropertyOptional({
     maxLength: 120,
-    description: 'Username o email registrado en el ecosistema general fundacional.',
-    example: 'maria.acudiente',
+    description: 'Username o email registrado en el servicio central (alias compatible).',
+    example: 'maria@prueba.com',
   })
+  @ValidateIf((dto: SyncSessionDto) => !dto.email)
   @IsString()
   @IsNotEmpty()
   @MaxLength(120)
-  identifier!: string;
+  identifier?: string;
+
+  @ApiPropertyOptional({
+    maxLength: 120,
+    description: 'Email o identificador de inicio de sesión.',
+    example: 'maria@prueba.com',
+  })
+  @ValidateIf((dto: SyncSessionDto) => !dto.identifier)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  email?: string;
 
   @ApiProperty({
     minLength: 8,
@@ -36,3 +56,5 @@ export class SyncSessionDto {
   })
   accept_consent!: boolean;
 }
+
+export { SyncSessionDto as LoginUserDto };

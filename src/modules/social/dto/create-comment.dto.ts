@@ -1,6 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsNotEmpty, IsString, Length } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsUUID, Length } from 'class-validator';
 
 export class CreateCommentDto {
   @ApiProperty({ minLength: 1, maxLength: 1000 })
@@ -9,4 +9,12 @@ export class CreateCommentDto {
   @IsNotEmpty()
   @Length(1, 1000)
   content!: string;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description: 'ID del comentario padre para respuestas en hilo.',
+  })
+  @IsOptional()
+  @IsUUID()
+  parent_id?: string;
 }

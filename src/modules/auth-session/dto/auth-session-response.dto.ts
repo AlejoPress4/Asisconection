@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class PublicUserDto {
   @ApiProperty({ format: 'uuid' })
@@ -12,6 +12,12 @@ export class PublicUserDto {
 
   @ApiProperty({ example: 'ACUDIENTE' })
   rol!: string;
+
+  @ApiPropertyOptional({ type: [String], example: ['ACUDIENTE'] })
+  external_roles?: string[];
+
+  @ApiPropertyOptional({ nullable: true, example: null })
+  local_role?: string | null;
 }
 
 export class AuthSessionResponseDto {

@@ -1,9 +1,12 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ModerationModule } from '../moderation/moderation.module';
 import { CategoriesController } from './controllers/categories.controller';
 import { PostsController } from './controllers/posts.controller';
 import { Category } from './entities/category.entity';
+import { CommentReaction } from './entities/comment-reaction.entity';
 import { Comment } from './entities/comment.entity';
+import { PostMedia } from './entities/post-media.entity';
 import { Post } from './entities/post.entity';
 import { Reaction } from './entities/reaction.entity';
 import { CATEGORY_REPOSITORY } from './interfaces/i-category.repository';
@@ -18,7 +21,10 @@ import { CategoriesService } from './services/categories.service';
 import { PostsService } from './services/posts.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Category, Post, Comment, Reaction])],
+  imports: [
+    TypeOrmModule.forFeature([Category, Post, PostMedia, Comment, Reaction, CommentReaction]),
+    forwardRef(() => ModerationModule),
+  ],
   controllers: [CategoriesController, PostsController],
   providers: [
     {

@@ -16,8 +16,8 @@ export class UserAccount {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: 'external_user_id', type: 'varchar', length: 120, nullable: true })
-  externalUserId!: string | null;
+  @Column({ name: 'external_user_id', type: 'int', nullable: true })
+  externalUserId!: number | null;
 
   @Column({ type: 'varchar', length: 80 })
   username!: string;
@@ -27,6 +27,12 @@ export class UserAccount {
 
   @Column({ type: 'varchar', length: 40 })
   rol!: string;
+
+  @Column({ name: 'external_roles', type: 'text', array: true, default: '{}' })
+  externalRoles!: string[];
+
+  @Column({ name: 'local_role', type: 'varchar', length: 40, nullable: true })
+  localRole!: string | null;
 
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive!: boolean;

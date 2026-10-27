@@ -26,6 +26,13 @@ export class Comment {
   @JoinColumn({ name: 'post_id' })
   post?: Post;
 
+  @Column({ name: 'parent_id', type: 'uuid', nullable: true })
+  parentId!: string | null;
+
+  @ManyToOne(() => Comment, { nullable: true, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'parent_id' })
+  parent?: Comment | null;
+
   @Column({ name: 'device_id', type: 'uuid' })
   deviceId!: string;
 
@@ -50,6 +57,9 @@ export class Comment {
     default: ModerationStatus.PENDING,
   })
   status!: ModerationStatus;
+
+  @Column({ name: 'rejection_reason', type: 'varchar', length: 40, nullable: true })
+  rejectionReason!: string | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

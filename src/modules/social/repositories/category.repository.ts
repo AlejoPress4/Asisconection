@@ -17,7 +17,7 @@ export class CategoryRepository implements ICategoryRepository {
   ): Promise<{ items: CategoryProjection[]; total: number }> {
     const [entities, total] = await this.repository
       .createQueryBuilder('c')
-      .select(['c.id', 'c.name', 'c.description'])
+      .select(['c.id', 'c.name', 'c.mainTopic', 'c.description', 'c.coverImageUrl'])
       .orderBy('c.name', 'ASC')
       .skip(skip)
       .take(take)
@@ -26,7 +26,9 @@ export class CategoryRepository implements ICategoryRepository {
     const items: CategoryProjection[] = entities.map((entity) => ({
       id: entity.id,
       name: entity.name,
+      mainTopic: entity.mainTopic ?? 'General',
       description: entity.description,
+      coverImageUrl: entity.coverImageUrl ?? null,
     }));
 
     return { items, total };
