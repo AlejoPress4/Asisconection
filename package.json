@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "description": "AsisConexión Backend v2.0.0 — Monolito Modular en NestJS con Persistencia Única PostgreSQL",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "SEE LICENSE IN LICENSE",
   "engines": {
     "node": ">=20.11.0"
   },

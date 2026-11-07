@@ -1,0 +1,35 @@
+PROPRIETARY LICENSE / LICENCIA DE SOFTWARE PROPIETARIO
+Todos los derechos reservados — All Rights Reserved
+
+Copyright (c) 2026 Fundación Asisco — Proyecto AsisConexión.
+
+1. TITULARIDAD Y RESERVA DE DERECHOS
+Este software, incluyendo de manera enunciativa mas no limitativa su código fuente,
+arquitectura, modelos de datos, migraciones, contratos de interfaz (OpenAPI),
+documentación técnica y demás archivos asociados (en adelante, el "Software"),
+es propiedad intelectual exclusiva y confidencial de la Fundación Asisco y sus
+autores autorizados, protegido por la legislación colombiana sobre Derechos de Autor
+(Ley 23 de 1982, Ley 1915 de 2018), la Decisión Andina 351 de 1993 y los tratados
+internacionales aplicables.
+
+2. PROHIBICIÓN DE USO, COPIA Y DISTRIBUCIÓN (NO OPEN SOURCE)
+Este Software NO es de código abierto (No Open Source). Sin la autorización previa,
+expresa y por escrito del titular de los derechos, queda estrictamente prohibido:
+  a) Copiar, reproducir, publicar, distribuir o sublicenciar total o parcialmente el Software.
+  b) Modificar, adaptar, traducir, crear obras derivadas o realizar ingeniería inversa,
+     descompilación o desensamblaje del Software.
+  c) Utilizar el Software para fines comerciales o institucionales ajenos a los
+     autorizados expresamente por la Fundación Asisco.
+  d) Divulgar credenciales, contratos internos, esquemas de base de datos o lógica
+     de negocio a terceros no autorizados.
+
+3. ACCESO AUTORIZADO
+El acceso al repositorio por parte de desarrolladores, colaboradores académicos o
+aliados técnicos de la Fundación Asisco se concede únicamente con fines de
+desarrollo, mantenimiento u operación interna del ecosistema AsisConexión, sin que
+ello implique cesión ni transferencia de derechos patrimoniales sobre el Software.
+
+4. LIMITACIÓN DE RESPONSABILIDAD
+EL SOFTWARE SE PROPORCIONA "TAL CUAL" ("AS IS"), SIN GARANTÍAS DE NINGÚN TIPO,
+EXPRESAS O IMPLÍCITAS, INCLUYENDO PERO NO LIMITADO A GARANTÍAS DE COMERCIABILIDAD,
+IDONEIDAD PARA UN PROPÓSITO PARTICULAR O NO INFRACCIÓN.

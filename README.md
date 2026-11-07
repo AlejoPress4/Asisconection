@@ -122,3 +122,10 @@ npm run openapi:export  # Exporta dist/openapi.generated.json
 
 - **Swagger UI interactivo**: `http://localhost:3000/api/docs`
 - **Colección Postman / Insomnia**: [AsisConexion_v2.postman_collection.json](file:///home/molton334/Development/Poj-int/Asisconection/specs/001-asisconexion-mvp/contracts/AsisConexion_v2.postman_collection.json)
+
+---
+
+## 5. Licencia (Software Propietario — Todos los Derechos Reservados)
+
+Este proyecto **no es de código abierto**. Es propiedad intelectual exclusiva y confidencial de la **Fundación Asisco** bajo los términos definidos en el archivo [LICENSE](file:///home/molton334/Development/Poj-int/Asisconection/LICENSE) (Ley 23 de 1982 y Decisión Andina 351 de 1993).
+
