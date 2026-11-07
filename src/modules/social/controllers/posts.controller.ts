@@ -52,17 +52,9 @@ export class PostsController {
   constructor(private readonly postsService: PostsService) {}
 
   @Get('posts')
-  @ApiOperation({
-    summary: 'Lista exclusivamente publicaciones con status = APPROVED (RT-01, RN-02)',
-  })
-  @ApiOkResponse({
-    description: 'Página ligera de publicaciones aprobadas',
-    type: PostsPageDto,
-  })
-  @ApiBadRequestResponse({
-    description: 'Parámetros de consulta inválidos',
-    type: ProblemDetailsDto,
-  })
+  @ApiOperation({ summary: 'Lista exclusivamente publicaciones con status = APPROVED (RT-01, RN-02)' })
+  @ApiOkResponse({ type: PostsPageDto })
+  @ApiBadRequestResponse({ type: ProblemDetailsDto })
   async listApproved(@Query() query: ListPostsQueryDto): Promise<PostsPageDto> {
     return this.postsService.listApproved(query);
   }
@@ -70,33 +62,13 @@ export class PostsController {
   @Post('posts')
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
-  @ApiOperation({
-    summary: 'Crea publicación evaluando filtro automático previo y cola PENDING (RN-02)',
-  })
-  @ApiCreatedResponse({
-    description: 'Publicación recibida (PENDING o REJECTED por AUTO_FILTER)',
-    type: PendingSubmissionResponseDto,
-  })
-  @ApiBadRequestResponse({
-    description: 'Datos inválidos',
-    type: ProblemDetailsDto,
-  })
-  @ApiUnauthorizedResponse({
-    description: 'DeviceSession ausente o inválida',
-    type: ProblemDetailsDto,
-  })
-  @ApiForbiddenResponse({
-    description: 'Ausencia de consentimiento legal para adjuntar imágenes',
-    type: ProblemDetailsDto,
-  })
-  @ApiNotFoundResponse({
-    description: 'Categoría no encontrada',
-    type: ProblemDetailsDto,
-  })
-  @ApiTooManyRequestsResponse({
-    description: 'Límite diario de publicaciones anónimas excedido',
-    type: ProblemDetailsDto,
-  })
+  @ApiOperation({ summary: 'Crea publicación evaluando filtro automático previo y cola PENDING (RN-02)' })
+  @ApiCreatedResponse({ type: PendingSubmissionResponseDto })
+  @ApiBadRequestResponse({ type: ProblemDetailsDto })
+  @ApiUnauthorizedResponse({ type: ProblemDetailsDto })
+  @ApiForbiddenResponse({ type: ProblemDetailsDto })
+  @ApiNotFoundResponse({ type: ProblemDetailsDto })
+  @ApiTooManyRequestsResponse({ type: ProblemDetailsDto })
   async createPost(
     @CurrentSession() session: SessionContext | undefined,
     @Body() dto: CreatePostDto,
@@ -107,29 +79,12 @@ export class PostsController {
   @Post('posts/:postId/comments')
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
-  @ApiOperation({
-    summary: 'Crea comentario o respuesta en hilo (parent_id) con filtro automático y cola PENDING',
-  })
-  @ApiCreatedResponse({
-    description: 'Comentario registrado en estado PENDING o REJECTED (AUTO_FILTER)',
-    type: PendingSubmissionResponseDto,
-  })
-  @ApiBadRequestResponse({
-    description: 'Datos inválidos',
-    type: ProblemDetailsDto,
-  })
-  @ApiUnauthorizedResponse({
-    description: 'DeviceSession ausente o inválida',
-    type: ProblemDetailsDto,
-  })
-  @ApiNotFoundResponse({
-    description: 'Publicación no encontrada o no aprobada',
-    type: ProblemDetailsDto,
-  })
-  @ApiTooManyRequestsResponse({
-    description: 'Límite diario de comentarios anónimos excedido',
-    type: ProblemDetailsDto,
-  })
+  @ApiOperation({ summary: 'Crea comentario o respuesta en hilo (parent_id) con filtro automático y cola PENDING' })
+  @ApiCreatedResponse({ type: PendingSubmissionResponseDto })
+  @ApiBadRequestResponse({ type: ProblemDetailsDto })
+  @ApiUnauthorizedResponse({ type: ProblemDetailsDto })
+  @ApiNotFoundResponse({ type: ProblemDetailsDto })
+  @ApiTooManyRequestsResponse({ type: ProblemDetailsDto })
   async createComment(
     @CurrentSession() session: SessionContext | undefined,
     @Param('postId', new ParseUUIDPipe()) postId: string,
@@ -142,25 +97,11 @@ export class PostsController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
-  @ApiOperation({
-    summary: 'Registra o elimina (toggle) una reacción rápida en publicación (LIKE, SUPPORT, THANKS)',
-  })
-  @ApiOkResponse({
-    description: 'Estado resultante de la reacción para el dispositivo actual',
-    type: ToggleReactionResponseDto,
-  })
-  @ApiBadRequestResponse({
-    description: 'Tipo de reacción inválido',
-    type: ProblemDetailsDto,
-  })
-  @ApiUnauthorizedResponse({
-    description: 'DeviceSession ausente o inválida',
-    type: ProblemDetailsDto,
-  })
-  @ApiNotFoundResponse({
-    description: 'Publicación no encontrada o no aprobada',
-    type: ProblemDetailsDto,
-  })
+  @ApiOperation({ summary: 'Alterna (toggle) una reacción rápida en publicación (LIKE, SUPPORT, THANKS)' })
+  @ApiOkResponse({ type: ToggleReactionResponseDto })
+  @ApiBadRequestResponse({ type: ProblemDetailsDto })
+  @ApiUnauthorizedResponse({ type: ProblemDetailsDto })
+  @ApiNotFoundResponse({ type: ProblemDetailsDto })
   async toggleReaction(
     @CurrentSession() session: SessionContext | undefined,
     @Param('postId', new ParseUUIDPipe()) postId: string,
@@ -173,13 +114,8 @@ export class PostsController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
-  @ApiOperation({
-    summary: 'Registra o elimina (toggle) una reacción rápida en un comentario aprobado',
-  })
-  @ApiOkResponse({
-    description: 'Estado resultante de la reacción sobre el comentario',
-    type: ToggleCommentReactionResponseDto,
-  })
+  @ApiOperation({ summary: 'Alterna (toggle) una reacción rápida en un comentario aprobado' })
+  @ApiOkResponse({ type: ToggleCommentReactionResponseDto })
   async toggleCommentReaction(
     @CurrentSession() session: SessionContext | undefined,
     @Param('id', new ParseUUIDPipe()) commentId: string,

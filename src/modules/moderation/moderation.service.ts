@@ -12,6 +12,10 @@ import {
   MODERATION_REPOSITORY,
 } from './interfaces/i-moderation.repository';
 
+/**
+ * Servicio de moderación humana (`RN-02`) para `ADMIN` y `MODERATOR`,
+ * y gestión de moderadores globales (exclusivo `ADMIN`).
+ */
 @Injectable()
 export class ModerationService {
   constructor(
@@ -52,7 +56,6 @@ export class ModerationService {
     if (!updated) {
       throw new NotFoundException('La publicación indicada no existe.');
     }
-
     return {
       id: updated.id,
       item_type: updated.itemType,
@@ -69,7 +72,6 @@ export class ModerationService {
     if (!updated) {
       throw new NotFoundException('El comentario indicado no existe.');
     }
-
     return {
       id: updated.id,
       item_type: updated.itemType,
@@ -79,9 +81,7 @@ export class ModerationService {
   }
 
   async listModerators(): Promise<ModeratorAccountItemDto[]> {
-    if (!this.moderationRepository.listModerators) {
-      return [];
-    }
+    if (!this.moderationRepository.listModerators) return [];
     const items = await this.moderationRepository.listModerators();
     return items.map((item) => ({
       id: item.id,
@@ -93,27 +93,18 @@ export class ModerationService {
   }
 
   async assignModerator(userAccountId: string): Promise<ModeratorAccountItemDto> {
-    if (!this.moderationRepository.setLocalRole) {
-      throw new NotFoundException('La cuenta de usuario indicada no existe.');
-    }
-    const updated = await this.moderationRepository.setLocalRole(userAccountId, 'MODERATOR');
-    if (!updated) {
-      throw new NotFoundException('La cuenta de usuario indicada no existe.');
-    }
-    return {
-      id: updated.id,
-      username: updated.username,
-      email: updated.email,
-      rol: updated.rol,
-      local_role: updated.localRole,
-    };
+    return this.changeModeratorRole(userAccountId, 'MODERATOR');
   }
 
   async revokeModerator(userAccountId: string): Promise<ModeratorAccountItemDto> {
-    if (!this.moderationRepository.setLocalRole) {
-      throw new NotFoundException('La cuenta de usuario indicada no existe.');
-    }
-    const updated = await this.moderationRepository.setLocalRole(userAccountId, null);
+    return this.changeModeratorRole(userAccountId, null);
+  }
+
+  private async changeModeratorRole(
+    userAccountId: string,
+    role: 'MODERATOR' | null,
+  ): Promise<ModeratorAccountItemDto> {
+    const updated = await this.moderationRepository.setLocalRole?.(userAccountId, role);
     if (!updated) {
       throw new NotFoundException('La cuenta de usuario indicada no existe.');
     }

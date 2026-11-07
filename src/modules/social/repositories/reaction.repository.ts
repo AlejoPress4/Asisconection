@@ -7,13 +7,16 @@ import { Reaction } from '../entities/reaction.entity';
 import type { IReactionRepository } from '../interfaces/i-reaction.repository';
 
 function isUniqueViolation(error: unknown): boolean {
-  if (!(error instanceof QueryFailedError)) {
-    return false;
-  }
-  const driverError = error.driverError as { readonly code?: string } | undefined;
-  return driverError?.code === '23505';
+  return (
+    error instanceof QueryFailedError &&
+    (error.driverError as { readonly code?: string } | undefined)?.code === '23505'
+  );
 }
 
+/**
+ * Repositorio de reacciones alternables (`toggle`) para publicaciones (`Reaction`)
+ * y comentarios (`CommentReaction`), libre de condiciones de carrera.
+ */
 @Injectable()
 export class ReactionRepository implements IReactionRepository {
   constructor(
@@ -34,25 +37,15 @@ export class ReactionRepository implements IReactionRepository {
           where: { postId, deviceId, type },
           select: { id: true },
         });
-
         if (existing) {
           await repo.delete({ id: existing.id });
           return false;
         }
-
-        const created = repo.create({
-          postId,
-          deviceId,
-          userAccountId,
-          type,
-        });
-        await repo.save(created);
+        await repo.save(repo.create({ postId, deviceId, userAccountId, type }));
         return true;
       });
     } catch (error: unknown) {
-      if (isUniqueViolation(error)) {
-        return true;
-      }
+      if (isUniqueViolation(error)) return true;
       throw error;
     }
   }
@@ -70,25 +63,15 @@ export class ReactionRepository implements IReactionRepository {
           where: { commentId, deviceId, type },
           select: { id: true },
         });
-
         if (existing) {
           await repo.delete({ id: existing.id });
           return false;
         }
-
-        const created = repo.create({
-          commentId,
-          deviceId,
-          userAccountId,
-          type,
-        });
-        await repo.save(created);
+        await repo.save(repo.create({ commentId, deviceId, userAccountId, type }));
         return true;
       });
     } catch (error: unknown) {
-      if (isUniqueViolation(error)) {
-        return true;
-      }
+      if (isUniqueViolation(error)) return true;
       throw error;
     }
   }

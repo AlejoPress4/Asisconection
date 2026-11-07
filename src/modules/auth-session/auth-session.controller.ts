@@ -29,25 +29,11 @@ export class AuthSessionController {
 
   @Post('auth/registro')
   @UseGuards(OptionalDeviceSessionGuard)
-  @ApiOperation({
-    summary: 'Registra usuario en Render, sincroniza UserAccount + Actor local y emite DeviceSession',
-  })
-  @ApiCreatedResponse({
-    description: 'Usuario registrado, persistido en ASISCONEXION_DB y sesión emitida',
-    type: AuthSessionResponseDto,
-  })
-  @ApiBadRequestResponse({
-    description: 'Datos inválidos o consentimiento no aceptado',
-    type: ProblemDetailsDto,
-  })
-  @ApiConflictResponse({
-    description: 'Conflicto — usuario o email ya registrado en Render / BD Propia',
-    type: ProblemDetailsDto,
-  })
-  @ApiBadGatewayResponse({
-    description: 'Servicio central de Render no disponible o fallo de pasarela',
-    type: ProblemDetailsDto,
-  })
+  @ApiOperation({ summary: 'Registra usuario en Render, sincroniza UserAccount + Actor local y emite DeviceSession' })
+  @ApiCreatedResponse({ type: AuthSessionResponseDto })
+  @ApiBadRequestResponse({ type: ProblemDetailsDto })
+  @ApiConflictResponse({ type: ProblemDetailsDto })
+  @ApiBadGatewayResponse({ type: ProblemDetailsDto })
   async register(
     @Body() dto: RegisterUserDto,
     @CurrentSession() optionalSession?: SessionContext,
@@ -58,25 +44,11 @@ export class AuthSessionController {
   @Post('auth/login')
   @HttpCode(HttpStatus.OK)
   @UseGuards(OptionalDeviceSessionGuard)
-  @ApiOperation({
-    summary: 'Autentica usuario contra Render/Supabase, sincroniza UserAccount + Actor y emite device_token',
-  })
-  @ApiOkResponse({
-    description: 'Cuenta sincronizada en ASISCONEXION_DB y device_token emitido',
-    type: AuthSessionResponseDto,
-  })
-  @ApiBadRequestResponse({
-    description: 'Datos inválidos o consentimiento no aceptado',
-    type: ProblemDetailsDto,
-  })
-  @ApiUnauthorizedResponse({
-    description: 'Credenciales inválidas o cuenta inactiva',
-    type: ProblemDetailsDto,
-  })
-  @ApiBadGatewayResponse({
-    description: 'Indisponibilidad o rate-limit en servicio central',
-    type: ProblemDetailsDto,
-  })
+  @ApiOperation({ summary: 'Autentica usuario contra Render/Supabase, sincroniza UserAccount + Actor y emite device_token' })
+  @ApiOkResponse({ type: AuthSessionResponseDto })
+  @ApiBadRequestResponse({ type: ProblemDetailsDto })
+  @ApiUnauthorizedResponse({ type: ProblemDetailsDto })
+  @ApiBadGatewayResponse({ type: ProblemDetailsDto })
   async login(
     @Body() dto: SyncSessionDto,
     @CurrentSession() optionalSession?: SessionContext,
@@ -87,25 +59,11 @@ export class AuthSessionController {
   @Post('auth/sync-session')
   @HttpCode(HttpStatus.OK)
   @UseGuards(OptionalDeviceSessionGuard)
-  @ApiOperation({
-    summary: 'Alias compatible de inicio/sincronización de sesión con el servicio central',
-  })
-  @ApiOkResponse({
-    description: 'Cuenta sincronizada en ASISCONEXION_DB y device_token emitido',
-    type: AuthSessionResponseDto,
-  })
-  @ApiBadRequestResponse({
-    description: 'Datos inválidos o consentimiento no aceptado',
-    type: ProblemDetailsDto,
-  })
-  @ApiUnauthorizedResponse({
-    description: 'Credenciales inválidas o cuenta inactiva',
-    type: ProblemDetailsDto,
-  })
-  @ApiBadGatewayResponse({
-    description: 'Indisponibilidad en verificación externa',
-    type: ProblemDetailsDto,
-  })
+  @ApiOperation({ summary: 'Alias compatible de inicio/sincronización de sesión con el servicio central' })
+  @ApiOkResponse({ type: AuthSessionResponseDto })
+  @ApiBadRequestResponse({ type: ProblemDetailsDto })
+  @ApiUnauthorizedResponse({ type: ProblemDetailsDto })
+  @ApiBadGatewayResponse({ type: ProblemDetailsDto })
   async syncSession(
     @Body() dto: SyncSessionDto,
     @CurrentSession() optionalSession?: SessionContext,
@@ -114,17 +72,9 @@ export class AuthSessionController {
   }
 
   @Post('sessions/anonymous')
-  @ApiOperation({
-    summary: 'Inicia sesión rápida por dispositivo sin registro de cuenta ni perfil Actor',
-  })
-  @ApiCreatedResponse({
-    description: 'DeviceSession anónima creada con trazabilidad de consentimiento',
-    type: AnonymousSessionResponseDto,
-  })
-  @ApiBadRequestResponse({
-    description: 'Consentimiento Ley 1581 no aceptado o payload inválido',
-    type: ProblemDetailsDto,
-  })
+  @ApiOperation({ summary: 'Inicia sesión rápida por dispositivo sin registro de cuenta ni perfil Actor' })
+  @ApiCreatedResponse({ type: AnonymousSessionResponseDto })
+  @ApiBadRequestResponse({ type: ProblemDetailsDto })
   async initAnonymous(
     @Body() dto: InitAnonymousSessionDto,
   ): Promise<AnonymousSessionResponseDto> {

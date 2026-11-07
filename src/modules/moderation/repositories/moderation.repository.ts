@@ -27,10 +27,6 @@ interface RawPendingRow {
   readonly created_at: Date | string;
 }
 
-interface RawCountRow {
-  readonly total: number | string;
-}
-
 interface RawUpdatedRow {
   readonly id: string;
   readonly status: AllowedModerationDecision;
@@ -46,7 +42,49 @@ interface RawModeratorRow {
   readonly local_role: string | null;
 }
 
-function mapRawPendingRow(row: RawPendingRow): PendingModerationRow {
+const PENDING_POSTS_SELECT = `
+  SELECT
+    p.id,
+    'POST'::text AS item_type,
+    NULL::uuid AS post_id,
+    p.category_id,
+    p.content,
+    p.image_url,
+    p.device_id,
+    p.user_account_id,
+    ua.username,
+    ua.rol,
+    ds.nickname,
+    ds.role_tag,
+    p.created_at
+  FROM posts p
+  LEFT JOIN device_sessions ds ON ds.id = p.device_id
+  LEFT JOIN user_accounts ua ON ua.id = p.user_account_id
+  WHERE p.status = $1::"public"."moderation_status_enum"
+`;
+
+const PENDING_COMMENTS_SELECT = `
+  SELECT
+    c.id,
+    'COMMENT'::text AS item_type,
+    c.post_id,
+    NULL::uuid AS category_id,
+    c.content,
+    NULL::varchar AS image_url,
+    c.device_id,
+    c.user_account_id,
+    ua.username,
+    ua.rol,
+    ds.nickname,
+    ds.role_tag,
+    c.created_at
+  FROM comments c
+  LEFT JOIN device_sessions ds ON ds.id = c.device_id
+  LEFT JOIN user_accounts ua ON ua.id = c.user_account_id
+  WHERE c.status = $1::"public"."moderation_status_enum"
+`;
+
+function mapPendingRow(row: RawPendingRow): PendingModerationRow {
   return {
     id: row.id,
     itemType: row.item_type,
@@ -64,6 +102,10 @@ function mapRawPendingRow(row: RawPendingRow): PendingModerationRow {
   };
 }
 
+/**
+ * Repositorio SQL para la cola unificada de moderación (`PENDING`), decisiones humanas (`RN-02`)
+ * y administración del rol global `MODERATOR`.
+ */
 @Injectable()
 export class ModerationRepository implements IModerationRepository {
   constructor(
@@ -76,148 +118,35 @@ export class ModerationRepository implements IModerationRepository {
     skip: number,
     take: number,
   ): Promise<{ items: PendingModerationRow[]; total: number }> {
-    const pendingStatus = ModerationStatus.PENDING;
+    const status = ModerationStatus.PENDING;
 
-    if (type === 'POST') {
-      const [rows, countRows] = await Promise.all([
-        this.dataSource.query<RawPendingRow[]>(
-          `
-            SELECT
-              p.id,
-              'POST'::text AS item_type,
-              NULL::uuid AS post_id,
-              p.category_id,
-              p.content,
-              p.image_url,
-              p.device_id,
-              p.user_account_id,
-              ua.username,
-              ua.rol,
-              ds.nickname,
-              ds.role_tag,
-              p.created_at
-            FROM posts p
-            LEFT JOIN device_sessions ds ON ds.id = p.device_id
-            LEFT JOIN user_accounts ua ON ua.id = p.user_account_id
-            WHERE p.status = $1::"public"."moderation_status_enum"
-            ORDER BY p.created_at ASC
-            LIMIT $2 OFFSET $3
-          `,
-          [pendingStatus, take, skip],
-        ),
-        this.dataSource.query<RawCountRow[]>(
-          `SELECT COUNT(*)::int AS total FROM posts WHERE status = $1::"public"."moderation_status_enum"`,
-          [pendingStatus],
-        ),
-      ]);
+    const baseQuery =
+      type === 'POST'
+        ? PENDING_POSTS_SELECT
+        : type === 'COMMENT'
+          ? PENDING_COMMENTS_SELECT
+          : `${PENDING_POSTS_SELECT} UNION ALL ${PENDING_COMMENTS_SELECT}`;
 
-      return {
-        items: rows.map(mapRawPendingRow),
-        total: Number(countRows[0]?.total ?? 0),
-      };
-    }
-
-    if (type === 'COMMENT') {
-      const [rows, countRows] = await Promise.all([
-        this.dataSource.query<RawPendingRow[]>(
-          `
-            SELECT
-              c.id,
-              'COMMENT'::text AS item_type,
-              c.post_id,
-              NULL::uuid AS category_id,
-              c.content,
-              NULL::varchar AS image_url,
-              c.device_id,
-              c.user_account_id,
-              ua.username,
-              ua.rol,
-              ds.nickname,
-              ds.role_tag,
-              c.created_at
-            FROM comments c
-            LEFT JOIN device_sessions ds ON ds.id = c.device_id
-            LEFT JOIN user_accounts ua ON ua.id = c.user_account_id
-            WHERE c.status = $1::"public"."moderation_status_enum"
-            ORDER BY c.created_at ASC
-            LIMIT $2 OFFSET $3
-          `,
-          [pendingStatus, take, skip],
-        ),
-        this.dataSource.query<RawCountRow[]>(
-          `SELECT COUNT(*)::int AS total FROM comments WHERE status = $1::"public"."moderation_status_enum"`,
-          [pendingStatus],
-        ),
-      ]);
-
-      return {
-        items: rows.map(mapRawPendingRow),
-        total: Number(countRows[0]?.total ?? 0),
-      };
-    }
+    const countQuery =
+      type === 'POST'
+        ? `SELECT COUNT(*)::int AS total FROM posts WHERE status = $1::"public"."moderation_status_enum"`
+        : type === 'COMMENT'
+          ? `SELECT COUNT(*)::int AS total FROM comments WHERE status = $1::"public"."moderation_status_enum"`
+          : `SELECT (
+              (SELECT COUNT(*)::int FROM posts WHERE status = $1::"public"."moderation_status_enum") +
+              (SELECT COUNT(*)::int FROM comments WHERE status = $1::"public"."moderation_status_enum")
+            ) AS total`;
 
     const [rows, countRows] = await Promise.all([
       this.dataSource.query<RawPendingRow[]>(
-        `
-          SELECT * FROM (
-            SELECT
-              p.id,
-              'POST'::text AS item_type,
-              NULL::uuid AS post_id,
-              p.category_id,
-              p.content,
-              p.image_url,
-              p.device_id,
-              p.user_account_id,
-              ua.username,
-              ua.rol,
-              ds.nickname,
-              ds.role_tag,
-              p.created_at
-            FROM posts p
-            LEFT JOIN device_sessions ds ON ds.id = p.device_id
-            LEFT JOIN user_accounts ua ON ua.id = p.user_account_id
-            WHERE p.status = $1::"public"."moderation_status_enum"
-
-            UNION ALL
-
-            SELECT
-              c.id,
-              'COMMENT'::text AS item_type,
-              c.post_id,
-              NULL::uuid AS category_id,
-              c.content,
-              NULL::varchar AS image_url,
-              c.device_id,
-              c.user_account_id,
-              ua.username,
-              ua.rol,
-              ds.nickname,
-              ds.role_tag,
-              c.created_at
-            FROM comments c
-            LEFT JOIN device_sessions ds ON ds.id = c.device_id
-            LEFT JOIN user_accounts ua ON ua.id = c.user_account_id
-            WHERE c.status = $1::"public"."moderation_status_enum"
-          ) AS combined
-          ORDER BY combined.created_at ASC
-          LIMIT $2 OFFSET $3
-        `,
-        [pendingStatus, take, skip],
+        `SELECT * FROM (${baseQuery}) AS q ORDER BY q.created_at ASC LIMIT $2 OFFSET $3`,
+        [status, take, skip],
       ),
-      this.dataSource.query<RawCountRow[]>(
-        `
-          SELECT (
-            (SELECT COUNT(*)::int FROM posts WHERE status = $1::"public"."moderation_status_enum") +
-            (SELECT COUNT(*)::int FROM comments WHERE status = $1::"public"."moderation_status_enum")
-          ) AS total
-        `,
-        [pendingStatus],
-      ),
+      this.dataSource.query<Array<{ total: number | string }>>(countQuery, [status]),
     ]);
 
     return {
-      items: rows.map(mapRawPendingRow),
+      items: rows.map(mapPendingRow),
       total: Number(countRows[0]?.total ?? 0),
     };
   }
@@ -229,32 +158,24 @@ export class ModerationRepository implements IModerationRepository {
     const rejectionReason = status === ModerationStatus.REJECTED ? 'HUMAN' : null;
     const rows = await this.dataSource.query<RawUpdatedRow[]>(
       `
-        WITH updated AS (
-          UPDATE posts
-          SET
-            status = $1::"public"."moderation_status_enum",
-            rejection_reason = $3,
-            updated_at = now()
-          WHERE id = $2
-          RETURNING id, status, rejection_reason, updated_at
-        )
-        SELECT id, status, rejection_reason, updated_at FROM updated
+        UPDATE posts
+        SET status = $1::"public"."moderation_status_enum", rejection_reason = $3, updated_at = now()
+        WHERE id = $2
+        RETURNING id, status, rejection_reason, updated_at
       `,
       [status, id, rejectionReason],
     );
 
     const row = rows[0];
-    if (!row) {
-      return null;
-    }
-
-    return {
-      id: row.id,
-      itemType: 'POST',
-      status: row.status,
-      rejectionReason: row.rejection_reason,
-      updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
-    };
+    return row
+      ? {
+          id: row.id,
+          itemType: 'POST',
+          status: row.status,
+          rejectionReason: row.rejection_reason,
+          updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+        }
+      : null;
   }
 
   async updateCommentStatus(
@@ -264,31 +185,24 @@ export class ModerationRepository implements IModerationRepository {
     const rejectionReason = status === ModerationStatus.REJECTED ? 'HUMAN' : null;
     const rows = await this.dataSource.query<RawUpdatedRow[]>(
       `
-        WITH updated AS (
-          UPDATE comments
-          SET
-            status = $1::"public"."moderation_status_enum",
-            rejection_reason = $3
-          WHERE id = $2
-          RETURNING id, status, rejection_reason, now() AS updated_at
-        )
-        SELECT id, status, rejection_reason, updated_at FROM updated
+        UPDATE comments
+        SET status = $1::"public"."moderation_status_enum", rejection_reason = $3
+        WHERE id = $2
+        RETURNING id, status, rejection_reason, now() AS updated_at
       `,
       [status, id, rejectionReason],
     );
 
     const row = rows[0];
-    if (!row) {
-      return null;
-    }
-
-    return {
-      id: row.id,
-      itemType: 'COMMENT',
-      status: row.status,
-      rejectionReason: row.rejection_reason,
-      updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
-    };
+    return row
+      ? {
+          id: row.id,
+          itemType: 'COMMENT',
+          status: row.status,
+          rejectionReason: row.rejection_reason,
+          updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+        }
+      : null;
   }
 
   async listModerators(): Promise<ModeratorAccountRecord[]> {
@@ -325,16 +239,14 @@ export class ModerationRepository implements IModerationRepository {
     );
 
     const row = rows[0];
-    if (!row) {
-      return null;
-    }
-
-    return {
-      id: row.id,
-      username: row.username,
-      email: row.email,
-      rol: row.rol,
-      localRole: row.local_role,
-    };
+    return row
+      ? {
+          id: row.id,
+          username: row.username,
+          email: row.email,
+          rol: row.rol,
+          localRole: row.local_role,
+        }
+      : null;
   }
 }

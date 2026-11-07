@@ -20,9 +20,14 @@ import {
 } from './interfaces/i-local-user.repository';
 import {
   EXTERNAL_AUTH_ADAPTER,
+  type ExternalAuthUserResult,
   type IExternalAuthAdapter,
 } from './interfaces/i-render-auth.adapter';
 
+/**
+ * Servicio de dominio para autenticación híbrida (Render/Supabase -> `ASISCONEXION_DB`)
+ * y sesiones rápidas anónimas por dispositivo.
+ */
 @Injectable()
 export class AuthSessionService {
   constructor(
@@ -37,14 +42,10 @@ export class AuthSessionService {
     dto: RegisterUserDto,
     optionalSession?: SessionContext,
   ): Promise<AuthSessionResponseDto> {
-    const normalizedUsername = dto.username.trim();
-    const normalizedEmail = dto.email.trim().toLowerCase();
+    const username = dto.username.trim();
+    const email = dto.email.trim().toLowerCase();
 
-    const existingLocal = await this.userSyncRepository.findByIdentity(
-      null,
-      normalizedUsername,
-      normalizedEmail,
-    );
+    const existingLocal = await this.userSyncRepository.findByIdentity(null, username, email);
     if (existingLocal) {
       throw new ConflictException(
         'El username o email ya se encuentra registrado en AsisConexión.',
@@ -52,107 +53,36 @@ export class AuthSessionService {
     }
 
     const externalUser = await this.externalAuthAdapter.registerUser({
-      username: normalizedUsername,
-      email: normalizedEmail,
+      username,
+      email,
       clave: dto.clave,
       rol: dto.rol,
     });
 
-    const effectiveRol = externalUser.rol.trim().toUpperCase();
-    const existingAnonymousSessionId =
-      optionalSession && optionalSession.userAccountId === null
-        ? optionalSession.sessionId
-        : undefined;
-
-    const { user, session } = await this.userSyncRepository.upsertUserAndSession({
-      externalUserId: externalUser.externalUserId,
-      username: externalUser.username,
-      email: externalUser.email,
-      rol: effectiveRol,
-      externalRoles: externalUser.roles,
-      existingAnonymousSessionId,
-      signSessionToken: ({ sessionId, userAccountId, role }) =>
-        this.sessionTokenService.sign({
-          sub: sessionId,
-          uid: userAccountId,
-          role,
-          typ: 'device_session',
-        }),
-    });
-
-    return {
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        rol: user.rol,
-        external_roles: user.externalRoles,
-        local_role: user.localRole,
-      },
-      device_token: session.deviceToken,
-      synced_with_global_db: true,
-    };
+    return this.persistSessionAndFormatResponse(externalUser, optionalSession);
   }
 
   async syncSession(
     dto: SyncSessionDto,
     optionalSession?: SessionContext,
   ): Promise<AuthSessionResponseDto> {
-    const rawIdentifier = (dto.email ?? dto.identifier ?? '').trim();
-    if (!rawIdentifier) {
+    const identifier = (dto.email ?? dto.identifier ?? '').trim();
+    if (!identifier) {
       throw new BadRequestException('Debe proporcionar email o identifier para iniciar sesión.');
     }
 
-    const externalUser = await this.externalAuthAdapter.authenticateUser(rawIdentifier, dto.clave);
-
-    const effectiveExternalId = externalUser.externalUserId;
-    const effectiveUsername = externalUser.username;
-    const effectiveEmail = externalUser.email;
-    const effectiveRol = externalUser.rol.trim().toUpperCase();
-
+    const externalUser = await this.externalAuthAdapter.authenticateUser(identifier, dto.clave);
     const existingAccount = await this.userSyncRepository.findByIdentity(
-      effectiveExternalId,
-      effectiveUsername,
-      effectiveEmail,
+      externalUser.externalUserId,
+      externalUser.username,
+      externalUser.email,
     );
 
     if (existingAccount && !existingAccount.isActive) {
       throw new UnauthorizedException('La cuenta de usuario se encuentra inactiva.');
     }
 
-    const existingAnonymousSessionId =
-      optionalSession && optionalSession.userAccountId === null
-        ? optionalSession.sessionId
-        : undefined;
-
-    const { user, session } = await this.userSyncRepository.upsertUserAndSession({
-      externalUserId: effectiveExternalId,
-      username: effectiveUsername,
-      email: effectiveEmail,
-      rol: effectiveRol,
-      externalRoles: externalUser.roles,
-      existingAnonymousSessionId,
-      signSessionToken: ({ sessionId, userAccountId, role }) =>
-        this.sessionTokenService.sign({
-          sub: sessionId,
-          uid: userAccountId,
-          role,
-          typ: 'device_session',
-        }),
-    });
-
-    return {
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        rol: user.rol,
-        external_roles: user.externalRoles,
-        local_role: user.localRole,
-      },
-      device_token: session.deviceToken,
-      synced_with_global_db: true,
-    };
+    return this.persistSessionAndFormatResponse(externalUser, optionalSession);
   }
 
   async login(
@@ -178,6 +108,43 @@ export class AuthSessionService {
     return {
       device_token: session.deviceToken,
       session_id: session.id,
+    };
+  }
+
+  private async persistSessionAndFormatResponse(
+    externalUser: ExternalAuthUserResult,
+    optionalSession?: SessionContext,
+  ): Promise<AuthSessionResponseDto> {
+    const existingAnonymousSessionId =
+      optionalSession?.userAccountId === null ? optionalSession.sessionId : undefined;
+
+    const { user, session } = await this.userSyncRepository.upsertUserAndSession({
+      externalUserId: externalUser.externalUserId,
+      username: externalUser.username,
+      email: externalUser.email,
+      rol: externalUser.rol.trim().toUpperCase(),
+      externalRoles: externalUser.roles,
+      existingAnonymousSessionId,
+      signSessionToken: ({ sessionId, userAccountId, role }) =>
+        this.sessionTokenService.sign({
+          sub: sessionId,
+          uid: userAccountId,
+          role,
+          typ: 'device_session',
+        }),
+    });
+
+    return {
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        rol: user.rol,
+        external_roles: user.externalRoles,
+        local_role: user.localRole,
+      },
+      device_token: session.deviceToken,
+      synced_with_global_db: true,
     };
   }
 }

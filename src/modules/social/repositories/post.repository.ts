@@ -12,17 +12,6 @@ import type {
   IPostRepository,
 } from '../interfaces/i-post.repository';
 
-interface RawReactionCountRow {
-  readonly post_id: string;
-  readonly type: string;
-  readonly total: number | string;
-}
-
-interface RawCommentCountRow {
-  readonly post_id: string;
-  readonly total: number | string;
-}
-
 interface RawRecentCommentRow {
   readonly id: string;
   readonly post_id: string;
@@ -36,25 +25,17 @@ interface RawRecentCommentRow {
   readonly role_tag: string | null;
 }
 
-interface RawPostMediaRow {
-  readonly post_id: string;
-  readonly media_url: string;
-}
+const createEmptyReactions = (): Record<ReactionType, number> => ({
+  [ReactionType.LIKE]: 0,
+  [ReactionType.SUPPORT]: 0,
+  [ReactionType.THANKS]: 0,
+});
 
-function createEmptyReactionMap(): Record<ReactionType, number> {
-  return {
-    [ReactionType.LIKE]: 0,
-    [ReactionType.SUPPORT]: 0,
-    [ReactionType.THANKS]: 0,
-  };
-}
+const REACTION_SET: ReadonlySet<string> = new Set<string>(Object.values(ReactionType));
 
-const REACTION_TYPES: ReadonlySet<string> = new Set<string>(Object.values(ReactionType));
-
-function isReactionType(value: string): value is ReactionType {
-  return REACTION_TYPES.has(value);
-}
-
+/**
+ * Repositorio de publicaciones (`Post`), multimedia (`PostMedia`) y agregaciones ligeras (`RT-01`).
+ */
 @Injectable()
 export class PostRepository implements IPostRepository {
   constructor(
@@ -87,7 +68,7 @@ export class PostRepository implements IPostRepository {
         'ua.username',
         'ua.rol',
       ])
-      .where('p.status = :approvedStatus', { approvedStatus: ModerationStatus.APPROVED });
+      .where('p.status = :status', { status: ModerationStatus.APPROVED });
 
     if (categoryId) {
       qb.andWhere('p.categoryId = :categoryId', { categoryId });
@@ -103,7 +84,7 @@ export class PostRepository implements IPostRepository {
     const mediaMap = new Map<string, string[]>();
 
     if (postIds.length > 0) {
-      const mediaRows = await this.dataSource.query<RawPostMediaRow[]>(
+      const mediaRows = await this.dataSource.query<Array<{ post_id: string; media_url: string }>>(
         `
           SELECT post_id, media_url
           FROM post_media
@@ -113,20 +94,20 @@ export class PostRepository implements IPostRepository {
         [postIds],
       );
       for (const row of mediaRows) {
-        const current = mediaMap.get(row.post_id) ?? [];
-        current.push(row.media_url);
-        mediaMap.set(row.post_id, current);
+        const list = mediaMap.get(row.post_id) ?? [];
+        list.push(row.media_url);
+        mediaMap.set(row.post_id, list);
       }
     }
 
     const items: ApprovedPostProjection[] = entities.map((post) => {
-      const mediaList = mediaMap.get(post.id) ?? (post.imageUrl ? [post.imageUrl] : []);
+      const mediaUrls = mediaMap.get(post.id) ?? (post.imageUrl ? [post.imageUrl] : []);
       return {
         id: post.id,
         categoryId: post.categoryId,
         content: post.content,
-        imageUrl: post.imageUrl ?? mediaList[0] ?? null,
-        mediaUrls: mediaList,
+        imageUrl: post.imageUrl ?? mediaUrls[0] ?? null,
+        mediaUrls,
         createdAt: post.createdAt,
         userAccountId: post.userAccountId,
         username: post.userAccount?.username ?? null,
@@ -143,15 +124,15 @@ export class PostRepository implements IPostRepository {
     postIds: ReadonlyArray<string>,
   ): Promise<Map<string, Record<ReactionType, number>>> {
     const result = new Map<string, Record<ReactionType, number>>();
-    if (postIds.length === 0) {
-      return result;
-    }
+    if (postIds.length === 0) return result;
 
     for (const postId of postIds) {
-      result.set(postId, createEmptyReactionMap());
+      result.set(postId, createEmptyReactions());
     }
 
-    const rows = await this.dataSource.query<RawReactionCountRow[]>(
+    const rows = await this.dataSource.query<
+      Array<{ post_id: string; type: string; total: number | string }>
+    >(
       `
         SELECT post_id, type, COUNT(*)::int AS total
         FROM reactions
@@ -162,9 +143,9 @@ export class PostRepository implements IPostRepository {
     );
 
     for (const row of rows) {
-      const bucket = result.get(row.post_id) ?? createEmptyReactionMap();
-      if (isReactionType(row.type)) {
-        bucket[row.type] = Number(row.total);
+      const bucket = result.get(row.post_id) ?? createEmptyReactions();
+      if (REACTION_SET.has(row.type)) {
+        bucket[row.type as ReactionType] = Number(row.total);
       }
       result.set(row.post_id, bucket);
     }
@@ -176,11 +157,9 @@ export class PostRepository implements IPostRepository {
     postIds: ReadonlyArray<string>,
   ): Promise<Map<string, number>> {
     const result = new Map<string, number>();
-    if (postIds.length === 0) {
-      return result;
-    }
+    if (postIds.length === 0) return result;
 
-    const rows = await this.dataSource.query<RawCommentCountRow[]>(
+    const rows = await this.dataSource.query<Array<{ post_id: string; total: number | string }>>(
       `
         SELECT post_id, COUNT(*)::int AS total
         FROM comments
@@ -193,7 +172,6 @@ export class PostRepository implements IPostRepository {
     for (const row of rows) {
       result.set(row.post_id, Number(row.total));
     }
-
     return result;
   }
 
@@ -202,23 +180,11 @@ export class PostRepository implements IPostRepository {
     perPostLimit: number,
   ): Promise<Map<string, ApprovedCommentProjection[]>> {
     const result = new Map<string, ApprovedCommentProjection[]>();
-    if (postIds.length === 0 || perPostLimit <= 0) {
-      return result;
-    }
+    if (postIds.length === 0 || perPostLimit <= 0) return result;
 
     const rows = await this.dataSource.query<RawRecentCommentRow[]>(
       `
-        SELECT
-          ranked.id,
-          ranked.post_id,
-          ranked.parent_id,
-          ranked.content,
-          ranked.created_at,
-          ranked.user_account_id,
-          ranked.username,
-          ranked.rol,
-          ranked.nickname,
-          ranked.role_tag
+        SELECT id, post_id, parent_id, content, created_at, user_account_id, username, rol, nickname, role_tag
         FROM (
           SELECT
             c.id,
@@ -244,8 +210,8 @@ export class PostRepository implements IPostRepository {
     );
 
     for (const row of rows) {
-      const existing = result.get(row.post_id) ?? [];
-      existing.push({
+      const list = result.get(row.post_id) ?? [];
+      list.push({
         id: row.id,
         postId: row.post_id,
         parentId: row.parent_id,
@@ -257,7 +223,7 @@ export class PostRepository implements IPostRepository {
         nickname: row.nickname,
         roleTag: row.role_tag,
       });
-      result.set(row.post_id, existing);
+      result.set(row.post_id, list);
     }
 
     return result;
@@ -267,35 +233,30 @@ export class PostRepository implements IPostRepository {
     return this.dataSource.transaction(async (manager) => {
       const postRepo = manager.getRepository(Post);
       const mediaRepo = manager.getRepository(PostMedia);
+      const mediaList = data.mediaUrls?.length
+        ? [...data.mediaUrls]
+        : data.imageUrl
+          ? [data.imageUrl]
+          : [];
 
-      const mediaList =
-        data.mediaUrls && data.mediaUrls.length > 0
-          ? [...data.mediaUrls]
-          : data.imageUrl
-            ? [data.imageUrl]
-            : [];
-
-      const entity = postRepo.create({
-        deviceId: data.deviceId,
-        userAccountId: data.userAccountId,
-        categoryId: data.categoryId,
-        content: data.content,
-        imageUrl: data.imageUrl ?? mediaList[0] ?? null,
-        status: data.status ?? ModerationStatus.PENDING,
-        rejectionReason: data.rejectionReason ?? null,
-      });
-
-      const savedPost = await postRepo.save(entity);
+      const savedPost = await postRepo.save(
+        postRepo.create({
+          deviceId: data.deviceId,
+          userAccountId: data.userAccountId,
+          categoryId: data.categoryId,
+          content: data.content,
+          imageUrl: data.imageUrl ?? mediaList[0] ?? null,
+          status: data.status ?? ModerationStatus.PENDING,
+          rejectionReason: data.rejectionReason ?? null,
+        }),
+      );
 
       if (mediaList.length > 0) {
-        const mediaEntities = mediaList.map((url, idx) =>
-          mediaRepo.create({
-            postId: savedPost.id,
-            mediaUrl: url,
-            displayOrder: idx,
-          }),
+        await mediaRepo.save(
+          mediaList.map((mediaUrl, displayOrder) =>
+            mediaRepo.create({ postId: savedPost.id, mediaUrl, displayOrder }),
+          ),
         );
-        await mediaRepo.save(mediaEntities);
       }
 
       return savedPost;
@@ -303,13 +264,11 @@ export class PostRepository implements IPostRepository {
   }
 
   async findStatusById(id: string): Promise<ModerationStatus | null> {
-    const post = await this.repository
-      .createQueryBuilder('p')
-      .select(['p.id', 'p.status'])
-      .where('p.id = :id', { id })
-      .getOne();
-
-    return post ? post.status : null;
+    const post = await this.repository.findOne({
+      where: { id },
+      select: { id: true, status: true },
+    });
+    return post?.status ?? null;
   }
 
   async countPostsByDeviceSince(deviceId: string, since: Date): Promise<number> {

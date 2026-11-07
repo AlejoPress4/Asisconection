@@ -20,6 +20,10 @@ import type { Actor } from './entities/actor.entity';
 import type { ActorConnection } from './entities/actor-connection.entity';
 import { ACTOR_REPOSITORY, type IActorRepository } from './interfaces/i-actor.repository';
 
+/**
+ * Servicio de perfiles extendidos (`Actor`) y red de conexiones (`ActorConnection`).
+ * Disponible exclusivamente para sesiones de usuarios registrados.
+ */
 @Injectable()
 export class ActorsService {
   constructor(
@@ -28,11 +32,7 @@ export class ActorsService {
   ) {}
 
   async getMyProfile(session: SessionContext): Promise<ActorProfileResponseDto> {
-    const userAccountId = this.requireRegisteredUser(session);
-    const actor = await this.actorRepository.ensureForUserAccount(
-      userAccountId,
-      session.rol ?? 'ACUDIENTE',
-    );
+    const actor = await this.ensureRegisteredActor(session);
     return this.mapActorDto(actor, session.username ?? 'usuario');
   }
 
@@ -67,12 +67,7 @@ export class ActorsService {
     session: SessionContext,
     dto: CreateConnectionDto,
   ): Promise<ActorConnectionResponseDto> {
-    const userAccountId = this.requireRegisteredUser(session);
-    const myActor = await this.actorRepository.ensureForUserAccount(
-      userAccountId,
-      session.rol ?? 'ACUDIENTE',
-    );
-
+    const myActor = await this.ensureRegisteredActor(session);
     if (myActor.id === dto.receiver_actor_id) {
       throw new BadRequestException('No puede enviar una solicitud de conexión a su propio perfil.');
     }
@@ -94,23 +89,15 @@ export class ActorsService {
     connectionId: string,
     dto: UpdateConnectionStatusDto,
   ): Promise<ActorConnectionResponseDto> {
-    const userAccountId = this.requireRegisteredUser(session);
-    const myActor = await this.actorRepository.ensureForUserAccount(
-      userAccountId,
-      session.rol ?? 'ACUDIENTE',
-    );
-
+    const myActor = await this.ensureRegisteredActor(session);
     const existing = await this.actorRepository.findConnectionById(connectionId);
     if (!existing) {
       throw new NotFoundException('La conexión solicitada no existe.');
     }
 
-    const isParticipant =
-      existing.receiverActorId === myActor.id || existing.requesterActorId === myActor.id;
-    if (!isParticipant) {
+    if (existing.receiverActorId !== myActor.id && existing.requesterActorId !== myActor.id) {
       throw new ForbiddenException('No tiene permisos para modificar esta conexión.');
     }
-
     if (dto.status === 'ACCEPTED' && existing.receiverActorId !== myActor.id) {
       throw new ForbiddenException('Solo el perfil receptor puede aceptar la solicitud de conexión.');
     }
@@ -119,7 +106,6 @@ export class ActorsService {
     if (!updated) {
       throw new NotFoundException('La conexión solicitada no existe.');
     }
-
     return this.mapConnectionDto(updated);
   }
 
@@ -127,12 +113,7 @@ export class ActorsService {
     session: SessionContext,
     query: PaginationQueryDto,
   ): Promise<ActorConnectionsPageDto> {
-    const userAccountId = this.requireRegisteredUser(session);
-    const myActor = await this.actorRepository.ensureForUserAccount(
-      userAccountId,
-      session.rol ?? 'ACUDIENTE',
-    );
-
+    const myActor = await this.ensureRegisteredActor(session);
     const { items, total } = await this.actorRepository.listConnectionsForActor(
       myActor.id,
       query.skip,
@@ -152,6 +133,11 @@ export class ActorsService {
       );
     }
     return session.userAccountId;
+  }
+
+  private ensureRegisteredActor(session: SessionContext): Promise<Actor> {
+    const userAccountId = this.requireRegisteredUser(session);
+    return this.actorRepository.ensureForUserAccount(userAccountId, session.rol ?? 'ACUDIENTE');
   }
 
   private mapActorDto(actor: Actor, fallbackUsername: string): ActorProfileResponseDto {

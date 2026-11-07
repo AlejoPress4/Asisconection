@@ -13,16 +13,14 @@ import {
 import { SessionTokenService } from '../auth/session-token.service';
 
 export function extractBearerToken(authorizationHeader: string | undefined): string | null {
-  if (!authorizationHeader) {
-    return null;
-  }
+  if (!authorizationHeader) return null;
   const [scheme, token] = authorizationHeader.trim().split(/\s+/);
-  if (!scheme || !token || scheme.toLowerCase() !== 'bearer') {
-    return null;
-  }
-  return token;
+  return scheme?.toLowerCase() === 'bearer' && token ? token : null;
 }
 
+/**
+ * Guard que exige un `device_token` JWT válido, activo en `device_sessions` y con consentimiento Ley 1581.
+ */
 @Injectable()
 export class DeviceSessionGuard implements CanActivate {
   constructor(
@@ -34,7 +32,6 @@ export class DeviceSessionGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
     const token = extractBearerToken(request.headers.authorization);
-
     if (!token) {
       throw new UnauthorizedException('Se requiere un token Bearer de sesión de dispositivo.');
     }
@@ -45,13 +42,11 @@ export class DeviceSessionGuard implements CanActivate {
     if (!sessionContext) {
       throw new UnauthorizedException('La sesión del dispositivo no existe o fue reemplazada.');
     }
-
     if (sessionContext.consentAcceptedAt === null) {
       throw new UnauthorizedException(
         'La sesión no cuenta con aceptación vigente de tratamiento de datos (Ley 1581 de 2012).',
       );
     }
-
     if (sessionContext.userAccountId !== null && sessionContext.isAccountActive === false) {
       throw new UnauthorizedException('La cuenta asociada a esta sesión se encuentra inactiva.');
     }

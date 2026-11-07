@@ -11,6 +11,10 @@ import type {
   SyncUserSessionInput,
 } from '../interfaces/i-local-user.repository';
 
+/**
+ * Repositorio de sincronización transaccional de cuentas (`UserAccount`), perfiles (`Actor`)
+ * y sesiones por dispositivo (`DeviceSession`) en `ASISCONEXION_DB`.
+ */
 @Injectable()
 export class LocalUserRepository implements IUserSyncRepository {
   constructor(
@@ -23,7 +27,7 @@ export class LocalUserRepository implements IUserSyncRepository {
     username: string,
     email: string,
   ): Promise<UserAccount | null> {
-    return this.findAccountWithManager(this.dataSource.manager, externalUserId, username, email);
+    return this.findAccount(this.dataSource.manager, externalUserId, username, email);
   }
 
   async upsertUserAndSession(
@@ -35,170 +39,140 @@ export class LocalUserRepository implements IUserSyncRepository {
       const sessionRepo = manager.getRepository(DeviceSession);
       const now = new Date();
 
-      const existingUser = await this.findAccountWithManager(
+      const existingUser = await this.findAccount(
         manager,
         input.externalUserId,
         input.username,
         input.email,
       );
-
       if (existingUser && !existingUser.isActive) {
         throw new UnauthorizedException('La cuenta de usuario se encuentra inactiva.');
       }
 
-      const normalizedExternalRoles =
+      const externalRoles =
         input.externalRoles && input.externalRoles.length > 0
           ? [...input.externalRoles]
           : [input.rol];
 
-      const userToSave = existingUser
-        ? userRepo.merge(existingUser, {
-            externalUserId: input.externalUserId ?? existingUser.externalUserId,
-            username: input.username.trim(),
-            email: input.email.trim().toLowerCase(),
-            rol: input.rol,
-            externalRoles: normalizedExternalRoles,
-            lastSyncedAt: now,
+      const user = await userRepo.save(
+        existingUser
+          ? userRepo.merge(existingUser, {
+              externalUserId: input.externalUserId ?? existingUser.externalUserId,
+              username: input.username.trim(),
+              email: input.email.trim().toLowerCase(),
+              rol: input.rol,
+              externalRoles,
+              lastSyncedAt: now,
+            })
+          : userRepo.create({
+              externalUserId: input.externalUserId,
+              username: input.username.trim(),
+              email: input.email.trim().toLowerCase(),
+              rol: input.rol,
+              externalRoles,
+              localRole: null,
+              isActive: true,
+              lastSyncedAt: now,
+            }),
+      );
+
+      const existingActor = await actorRepo.findOne({ where: { userAccountId: user.id } });
+      const actor = await actorRepo.save(
+        existingActor
+          ? actorRepo.merge(existingActor, { primaryRole: existingActor.primaryRole || user.rol })
+          : actorRepo.create({
+              userAccountId: user.id,
+              primaryRole: user.rol,
+              firstNames: null,
+              lastNames: null,
+              avatarUrl: null,
+              shortBio: null,
+            }),
+      );
+
+      const anonSession = input.existingAnonymousSessionId
+        ? await sessionRepo.findOne({
+            where: { id: input.existingAnonymousSessionId },
           })
-        : userRepo.create({
-            externalUserId: input.externalUserId,
-            username: input.username.trim(),
-            email: input.email.trim().toLowerCase(),
-            rol: input.rol,
-            externalRoles: normalizedExternalRoles,
-            localRole: null,
-            isActive: true,
-            lastSyncedAt: now,
-          });
+        : null;
+      const targetSession = anonSession?.userAccountId === null ? anonSession : null;
+      const sessionId = targetSession?.id ?? randomUUID();
 
-      const savedUser = await userRepo.save(userToSave);
-
-      const existingActor = await actorRepo.findOne({
-        where: { userAccountId: savedUser.id },
-      });
-
-      const actorToSave = existingActor
-        ? actorRepo.merge(existingActor, {
-            primaryRole: existingActor.primaryRole || savedUser.rol,
-          })
-        : actorRepo.create({
-            userAccountId: savedUser.id,
-            primaryRole: savedUser.rol,
-            firstNames: null,
-            lastNames: null,
-            avatarUrl: null,
-            shortBio: null,
-          });
-
-      const savedActor = await actorRepo.save(actorToSave);
-
-      let targetSession: DeviceSession | null = null;
-      if (input.existingAnonymousSessionId) {
-        const candidate = await sessionRepo.findOne({
-          where: { id: input.existingAnonymousSessionId },
-        });
-        if (candidate && candidate.userAccountId === null) {
-          targetSession = candidate;
-        }
-      }
-
-      const sessionId = targetSession ? targetSession.id : randomUUID();
       const deviceToken = input.signSessionToken({
         sessionId,
-        userAccountId: savedUser.id,
-        role: savedUser.rol,
+        userAccountId: user.id,
+        role: user.rol,
       });
 
-      const sessionToSave = targetSession
-        ? sessionRepo.merge(targetSession, {
-            userAccountId: savedUser.id,
-            deviceToken,
-            nickname: savedUser.username,
-            roleTag: savedUser.rol,
-            consentAcceptedAt: now,
-          })
-        : sessionRepo.create({
-            id: sessionId,
-            userAccountId: savedUser.id,
-            deviceToken,
-            nickname: savedUser.username,
-            roleTag: savedUser.rol,
-            consentAcceptedAt: now,
-          });
+      const session = await sessionRepo.save(
+        targetSession
+          ? sessionRepo.merge(targetSession, {
+              userAccountId: user.id,
+              deviceToken,
+              nickname: user.username,
+              roleTag: user.rol,
+              consentAcceptedAt: now,
+            })
+          : sessionRepo.create({
+              id: sessionId,
+              userAccountId: user.id,
+              deviceToken,
+              nickname: user.username,
+              roleTag: user.rol,
+              consentAcceptedAt: now,
+            }),
+      );
 
-      const savedSession = await sessionRepo.save(sessionToSave);
-
-      return {
-        user: savedUser,
-        actor: savedActor,
-        session: savedSession,
-      };
+      return { user, actor, session };
     });
   }
 
   async createAnonymousSession(input: CreateAnonymousSessionInput): Promise<DeviceSession> {
     const sessionRepo = this.dataSource.getRepository(DeviceSession);
     const sessionId = randomUUID();
-    const normalizedNickname = input.nickname?.trim() ? input.nickname.trim() : null;
-    const normalizedRoleTag = input.roleTag?.trim() ? input.roleTag.trim() : null;
+    const nickname = input.nickname?.trim() || null;
+    const roleTag = input.roleTag?.trim() || null;
 
     const deviceToken = input.signSessionToken({
       sessionId,
       userAccountId: null,
-      role: normalizedRoleTag ?? 'VISITANTE',
+      role: roleTag ?? 'VISITANTE',
     });
 
-    const session = sessionRepo.create({
-      id: sessionId,
-      userAccountId: null,
-      deviceToken,
-      nickname: normalizedNickname,
-      roleTag: normalizedRoleTag,
-      consentAcceptedAt: new Date(),
-    });
-
-    return sessionRepo.save(session);
+    return sessionRepo.save(
+      sessionRepo.create({
+        id: sessionId,
+        userAccountId: null,
+        deviceToken,
+        nickname,
+        roleTag,
+        consentAcceptedAt: new Date(),
+      }),
+    );
   }
 
-  private async findAccountWithManager(
+  private async findAccount(
     manager: EntityManager,
     externalUserId: number | null,
     username: string,
     email: string,
   ): Promise<UserAccount | null> {
-    const userRepo = manager.getRepository(UserAccount);
-
+    const repo = manager.getRepository(UserAccount);
     if (externalUserId !== null && externalUserId !== undefined) {
-      const byExternal = await userRepo.findOne({
-        where: { externalUserId },
-      });
-      if (byExternal) {
-        return byExternal;
-      }
+      const byExt = await repo.findOne({ where: { externalUserId } });
+      if (byExt) return byExt;
     }
 
-    const normalizedUsername = username.trim().toLowerCase();
-    if (normalizedUsername) {
-      const byUsername = await userRepo
-        .createQueryBuilder('u')
-        .where('LOWER(u.username) = :normalizedUsername', { normalizedUsername })
-        .getOne();
-      if (byUsername) {
-        return byUsername;
-      }
-    }
+    const cleanUser = username.trim().toLowerCase();
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanUser && !cleanEmail) return null;
 
-    const normalizedEmail = email.trim().toLowerCase();
-    if (normalizedEmail) {
-      const byEmail = await userRepo
-        .createQueryBuilder('u')
-        .where('LOWER(u.email) = :normalizedEmail', { normalizedEmail })
-        .getOne();
-      if (byEmail) {
-        return byEmail;
-      }
-    }
-
-    return null;
+    return repo
+      .createQueryBuilder('u')
+      .where('LOWER(u.username) = :cleanUser OR LOWER(u.email) = :cleanEmail', {
+        cleanUser,
+        cleanEmail,
+      })
+      .getOne();
   }
 }

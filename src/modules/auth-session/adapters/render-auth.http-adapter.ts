@@ -17,100 +17,82 @@ import type {
   IExternalAuthAdapter,
 } from '../interfaces/i-render-auth.adapter';
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
+type JsonRecord = Record<string, unknown>;
 
-function readOptionalString(record: Record<string, unknown>, key: string): string | null {
-  const raw = record[key];
-  if (typeof raw === 'string' && raw.trim().length > 0) {
-    return raw.trim();
-  }
-  if (typeof raw === 'number' && Number.isFinite(raw)) {
-    return String(raw);
-  }
+const asRecord = (val: unknown): JsonRecord | null =>
+  typeof val === 'object' && val !== null && !Array.isArray(val) ? (val as JsonRecord) : null;
+
+const readStr = (rec: JsonRecord, key: string): string | null => {
+  const val = rec[key];
+  if (typeof val === 'string' && val.trim()) return val.trim();
+  if (typeof val === 'number' && Number.isFinite(val)) return String(val);
   return null;
-}
+};
 
-function readOptionalInt(record: Record<string, unknown>, key: string): number | null {
-  const raw = record[key];
-  if (typeof raw === 'number' && Number.isFinite(raw)) {
-    return Math.trunc(raw);
-  }
-  if (typeof raw === 'string' && /^\d+$/.test(raw.trim())) {
-    return Number.parseInt(raw.trim(), 10);
-  }
+const readInt = (rec: JsonRecord, key: string): number | null => {
+  const val = rec[key];
+  if (typeof val === 'number' && Number.isFinite(val)) return Math.trunc(val);
+  if (typeof val === 'string' && /^\d+$/.test(val.trim())) return Number.parseInt(val.trim(), 10);
   return null;
-}
+};
 
-function readRolesArray(record: Record<string, unknown>): string[] {
-  const rawRoles = record['roles'];
-  if (Array.isArray(rawRoles)) {
-    const normalized = rawRoles
-      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-      .map((item) => item.trim().toUpperCase());
-    if (normalized.length > 0) {
-      return Array.from(new Set(normalized));
-    }
+const readRoles = (rec: JsonRecord): string[] => {
+  if (Array.isArray(rec['roles'])) {
+    const list = rec['roles']
+      .filter((r): r is string => typeof r === 'string' && r.trim().length > 0)
+      .map((r) => r.trim().toUpperCase());
+    if (list.length > 0) return Array.from(new Set(list));
   }
-  const singleRol = readOptionalString(record, 'rol') ?? readOptionalString(record, 'role');
-  if (singleRol) {
-    return [singleRol.trim().toUpperCase()];
-  }
-  return [];
-}
+  const single = readStr(rec, 'rol') ?? readStr(rec, 'role');
+  return single ? [single.toUpperCase()] : [];
+};
 
-function parseExternalUserResponse(
+function parseExternalUser(
   data: unknown,
   fallback: { username?: string; email?: string; rol?: string },
 ): ExternalAuthUserResult {
   const root = asRecord(data);
-  const nestedUser = root
-    ? (asRecord(root['usuario']) ?? asRecord(root['user']) ?? asRecord(root['data']))
-    : null;
-  const source = nestedUser ?? root ?? {};
+  const source =
+    (root && (asRecord(root['usuario']) ?? asRecord(root['user']) ?? asRecord(root['data']))) ??
+    root ??
+    {};
 
   const externalUserId =
-    readOptionalInt(source, 'usuarioId') ??
-    readOptionalInt(source, 'id') ??
-    readOptionalInt(source, 'userId') ??
-    (root ? (readOptionalInt(root, 'usuarioId') ?? readOptionalInt(root, 'id')) : null);
+    readInt(source, 'usuarioId') ??
+    readInt(source, 'id') ??
+    readInt(source, 'userId') ??
+    (root ? (readInt(root, 'usuarioId') ?? readInt(root, 'id')) : null);
 
-  const username = readOptionalString(source, 'username') ?? fallback.username ?? '';
-  const email = readOptionalString(source, 'email') ?? fallback.email ?? '';
-
-  const extractedRoles = readRolesArray(source);
-  const rootRoles = root ? readRolesArray(root) : [];
-  const roles =
-    extractedRoles.length > 0
-      ? extractedRoles
-      : rootRoles.length > 0
-        ? rootRoles
-        : [fallback.rol ? fallback.rol.trim().toUpperCase() : 'ACUDIENTE'];
-
-  const primaryRole = roles.includes('ADMIN') ? 'ADMIN' : (roles[0] ?? 'ACUDIENTE');
-  const externalToken = root ? (readOptionalString(root, 'token') ?? undefined) : undefined;
-  const expiresAt = root ? (readOptionalString(root, 'expiraEn') ?? undefined) : undefined;
-
+  const username = readStr(source, 'username') ?? fallback.username ?? '';
+  const email = readStr(source, 'email') ?? fallback.email ?? '';
   if (!username && !email) {
     throw new BadGatewayException(
       'La respuesta recibida desde el servicio externo de autenticación es incompleta.',
     );
   }
 
+  const roles =
+    readRoles(source).length > 0
+      ? readRoles(source)
+      : root && readRoles(root).length > 0
+        ? readRoles(root)
+        : [fallback.rol ? fallback.rol.trim().toUpperCase() : 'ACUDIENTE'];
+
   return {
     externalUserId,
     username: username || email,
     email: email || `${username}@asisco.local`,
-    rol: primaryRole,
+    rol: roles.includes('ADMIN') ? 'ADMIN' : (roles[0] ?? 'ACUDIENTE'),
     roles,
-    externalToken,
-    expiresAt,
+    externalToken: root ? (readStr(root, 'token') ?? undefined) : undefined,
+    expiresAt: root ? (readStr(root, 'expiraEn') ?? undefined) : undefined,
   };
 }
 
+/**
+ * Adaptador HTTP que consume el servicio central de identidad en Render / Supabase
+ * (`POST /auth/registro`, `POST /auth/login`, `GET /auth/perfil`).
+ */
 @Injectable()
 export class ExternalAuthHttpAdapter implements IExternalAuthAdapter {
   private readonly logger = new Logger(ExternalAuthHttpAdapter.name);
@@ -120,114 +102,60 @@ export class ExternalAuthHttpAdapter implements IExternalAuthAdapter {
 
   constructor(
     private readonly httpService: HttpService,
-    private readonly configService: ConfigService<EnvironmentVariables, true>,
+    config: ConfigService<EnvironmentVariables, true>,
   ) {
-    this.registerPath = this.configService.get('RENDER_REGISTER_PATH', { infer: true });
-    this.loginPath = this.configService.get('RENDER_LOGIN_PATH', { infer: true });
-    this.profilePath = this.configService.get('RENDER_PROFILE_PATH', { infer: true });
+    this.registerPath = config.get('RENDER_REGISTER_PATH', { infer: true });
+    this.loginPath = config.get('RENDER_LOGIN_PATH', { infer: true });
+    this.profilePath = config.get('RENDER_PROFILE_PATH', { infer: true });
   }
 
   async registerUser(payload: ExternalRegisterPayload): Promise<ExternalAuthUserResult> {
-    const strictPayload: ExternalRegisterPayload = {
-      username: payload.username,
-      email: payload.email,
-      clave: payload.clave,
-      rol: payload.rol,
-    };
-
     try {
-      const response = await firstValueFrom(
-        this.httpService.post<unknown>(this.registerPath, strictPayload),
+      const { data } = await firstValueFrom(
+        this.httpService.post<unknown>(this.registerPath, {
+          username: payload.username,
+          email: payload.email,
+          clave: payload.clave,
+          rol: payload.rol,
+        }),
       );
-      return parseExternalUserResponse(response.data, {
+      return parseExternalUser(data, payload);
+    } catch (error: unknown) {
+      if (error instanceof BadGatewayException || error instanceof ConflictException) throw error;
+      this.handleExternalError(error, 'registro', {
         username: payload.username,
         email: payload.email,
-        rol: payload.rol,
       });
-    } catch (error: unknown) {
-      if (error instanceof BadGatewayException || error instanceof ConflictException) {
-        throw error;
-      }
-
-      if (isAxiosError(error)) {
-        const status = error.response?.status;
-        this.logger.warn(
-          `Fallo en registro hacia Render (status=${status ?? 'network'}): ${JSON.stringify(
-            redactSensitiveFields({ username: payload.username, email: payload.email }),
-          )}`,
-        );
-
-        if (status === 429) {
-          throw new BadGatewayException(
-            'El servicio central de identidad alcanzó su límite temporal de peticiones. Intente en unos minutos.',
-          );
-        }
-
-        if (status !== undefined && status >= 400 && status < 500 && status !== 404) {
-          throw new ConflictException(
-            'El username o email ya se encuentra registrado en el servicio central. Puede iniciar sesión con su cuenta existente.',
-          );
-        }
-      }
-
-      throw new BadGatewayException(
-        'El servicio central de autenticación no se encuentra disponible temporalmente.',
-      );
     }
   }
 
   async authenticateUser(identifier: string, clave: string): Promise<ExternalAuthUserResult> {
     const trimmed = identifier.trim();
-    const loginPayload = trimmed.includes('@')
-      ? { email: trimmed, clave }
-      : { email: trimmed, username: trimmed, clave };
+    const isEmail = trimmed.includes('@');
+    const body = isEmail ? { email: trimmed, clave } : { email: trimmed, username: trimmed, clave };
 
     try {
-      const response = await firstValueFrom(
-        this.httpService.post<unknown>(this.loginPath, loginPayload),
-      );
-      return parseExternalUserResponse(response.data, {
-        username: trimmed.includes('@') ? undefined : trimmed,
-        email: trimmed.includes('@') ? trimmed : undefined,
+      const { data } = await firstValueFrom(this.httpService.post<unknown>(this.loginPath, body));
+      return parseExternalUser(data, {
+        username: isEmail ? undefined : trimmed,
+        email: isEmail ? trimmed : undefined,
       });
     } catch (error: unknown) {
       if (error instanceof BadGatewayException || error instanceof UnauthorizedException) {
         throw error;
       }
-
-      if (isAxiosError(error)) {
-        const status = error.response?.status;
-        this.logger.warn(
-          `Fallo en autenticación hacia Render (status=${status ?? 'network'}): ${JSON.stringify(
-            redactSensitiveFields({ identifier: trimmed }),
-          )}`,
-        );
-
-        if (status === 429) {
-          throw new BadGatewayException(
-            'El servicio central de identidad alcanzó su límite temporal de peticiones. Intente en unos minutos.',
-          );
-        }
-
-        if (status === 400 || status === 401 || status === 403 || status === 404) {
-          throw new UnauthorizedException('Correo o contraseña incorrectos.');
-        }
-      }
-
-      throw new BadGatewayException(
-        'El servicio central de autenticación no se encuentra disponible temporalmente.',
-      );
+      this.handleExternalError(error, 'login', { identifier: trimmed });
     }
   }
 
   async getProfile(externalToken: string): Promise<ExternalAuthUserResult> {
     try {
-      const response = await firstValueFrom(
+      const { data } = await firstValueFrom(
         this.httpService.get<unknown>(this.profilePath, {
           headers: { Authorization: `Bearer ${externalToken}` },
         }),
       );
-      return parseExternalUserResponse(response.data, {});
+      return parseExternalUser(data, {});
     } catch (error: unknown) {
       if (isAxiosError(error) && error.response?.status === 401) {
         throw new UnauthorizedException('El token del servicio externo ha expirado o es inválido.');
@@ -236,6 +164,42 @@ export class ExternalAuthHttpAdapter implements IExternalAuthAdapter {
         'No fue posible consultar el perfil en el servicio central de identidad.',
       );
     }
+  }
+
+  private handleExternalError(
+    error: unknown,
+    operation: 'registro' | 'login',
+    context: Record<string, unknown>,
+  ): never {
+    if (isAxiosError(error)) {
+      const status = error.response?.status;
+      this.logger.warn(
+        `Fallo en ${operation} hacia Render (status=${status ?? 'network'}): ${JSON.stringify(
+          redactSensitiveFields(context),
+        )}`,
+      );
+
+      if (status === 429) {
+        throw new BadGatewayException(
+          'El servicio central de identidad alcanzó su límite temporal de peticiones. Intente en unos minutos.',
+        );
+      }
+      if (operation === 'registro' && status && status >= 400 && status < 500 && status !== 404) {
+        throw new ConflictException(
+          'El username o email ya se encuentra registrado en el servicio central. Puede iniciar sesión con su cuenta existente.',
+        );
+      }
+      if (
+        operation === 'login' &&
+        (status === 400 || status === 401 || status === 403 || status === 404)
+      ) {
+        throw new UnauthorizedException('Correo o contraseña incorrectos.');
+      }
+    }
+
+    throw new BadGatewayException(
+      'El servicio central de autenticación no se encuentra disponible temporalmente.',
+    );
   }
 }
 

@@ -63,6 +63,10 @@ export function buildAuthorBadge(source: AuthorSourceFields): AuthorBadgeDto {
   };
 }
 
+/**
+ * Servicio de foros públicos, creación de publicaciones con múltiples URLs multimedia (`PostMedia`),
+ * comentarios anidados (`parent_id`), reacciones y evaluación previa por `ContentFilterService`.
+ */
 @Injectable()
 export class PostsService {
   constructor(
@@ -97,12 +101,11 @@ export class PostsService {
     const data: PublicPostItemDto[] = items.map((post) => {
       const reactions = reactionsMap.get(post.id);
       const recentComments = recentCommentsMap.get(post.id) ?? [];
-      const mediaUrls =
-        post.mediaUrls && post.mediaUrls.length > 0
-          ? [...post.mediaUrls]
-          : post.imageUrl
-            ? [post.imageUrl]
-            : [];
+      const mediaUrls = post.mediaUrls?.length
+        ? [...post.mediaUrls]
+        : post.imageUrl
+          ? [post.imageUrl]
+          : [];
 
       return {
         id: post.id,
@@ -138,17 +141,15 @@ export class PostsService {
     session: SessionContext,
     dto: CreatePostDto,
   ): Promise<PendingSubmissionResponseDto> {
-    const categoryExists = await this.categoryRepository.existsById(dto.category_id);
-    if (!categoryExists) {
+    if (!(await this.categoryRepository.existsById(dto.category_id))) {
       throw new NotFoundException('La categoría temática indicada no existe.');
     }
 
-    const mediaUrls =
-      dto.media_urls && dto.media_urls.length > 0
-        ? dto.media_urls
-        : dto.image_url
-          ? [dto.image_url]
-          : [];
+    const mediaUrls = dto.media_urls?.length
+      ? dto.media_urls
+      : dto.image_url
+        ? [dto.image_url]
+        : [];
 
     if (mediaUrls.length > 0 && session.consentAcceptedAt === null) {
       throw new ForbiddenException(
@@ -157,28 +158,20 @@ export class PostsService {
     }
 
     if (session.userAccountId === null && this.postRepository.countPostsByDeviceSince) {
-      const maxPostsPerDay =
-        this.configService?.get('ANON_MAX_POSTS_PER_DAY', { infer: true }) ?? 3;
-      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const countToday = await this.postRepository.countPostsByDeviceSince(
+      const limit = this.configService?.get('ANON_MAX_POSTS_PER_DAY', { infer: true }) ?? 3;
+      const count = await this.postRepository.countPostsByDeviceSince(
         session.sessionId,
-        since,
+        new Date(Date.now() - 86_400_000),
       );
-      if (countToday >= maxPostsPerDay) {
+      if (count >= limit) {
         throw new HttpException(
-          `Las sesiones anónimas tienen un límite de ${maxPostsPerDay} publicaciones por día. Regístrese o inicie sesión para publicar sin esta restricción.`,
+          `Las sesiones anónimas tienen un límite de ${limit} publicaciones por día. Regístrese o inicie sesión para publicar sin esta restricción.`,
           HttpStatus.TOO_MANY_REQUESTS,
         );
       }
     }
 
-    const filterEvaluation = this.contentFilterService?.evaluate(dto.content);
-    const initialStatus =
-      filterEvaluation?.status === ModerationStatus.REJECTED
-        ? ModerationStatus.REJECTED
-        : ModerationStatus.PENDING;
-    const rejectionReason = filterEvaluation?.rejectionReason ?? null;
-
+    const { status, rejectionReason } = this.evaluateContent(dto.content);
     const post = await this.postRepository.create({
       deviceId: session.sessionId,
       userAccountId: session.userAccountId,
@@ -186,25 +179,11 @@ export class PostsService {
       content: dto.content,
       imageUrl: dto.image_url ?? mediaUrls[0] ?? null,
       mediaUrls,
-      status: initialStatus,
+      status,
       rejectionReason,
     });
 
-    const effectiveStatus =
-      post.status === ModerationStatus.REJECTED
-        ? ModerationStatus.REJECTED
-        : ModerationStatus.PENDING;
-
-    return {
-      id: post.id,
-      status: effectiveStatus,
-      ...(rejectionReason ? { rejection_reason: rejectionReason } : {}),
-      message:
-        effectiveStatus === ModerationStatus.REJECTED
-          ? AUTO_REJECTED_MODERATION_MESSAGE
-          : PENDING_MODERATION_MESSAGE,
-      created_at: post.createdAt.toISOString(),
-    };
+    return this.formatSubmission(post.id, post.status, rejectionReason, post.createdAt);
   }
 
   async createComment(
@@ -227,53 +206,31 @@ export class PostsService {
     }
 
     if (session.userAccountId === null && this.commentRepository.countCommentsByDeviceSince) {
-      const maxCommentsPerDay =
-        this.configService?.get('ANON_MAX_COMMENTS_PER_DAY', { infer: true }) ?? 10;
-      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const countToday = await this.commentRepository.countCommentsByDeviceSince(
+      const limit = this.configService?.get('ANON_MAX_COMMENTS_PER_DAY', { infer: true }) ?? 10;
+      const count = await this.commentRepository.countCommentsByDeviceSince(
         session.sessionId,
-        since,
+        new Date(Date.now() - 86_400_000),
       );
-      if (countToday >= maxCommentsPerDay) {
+      if (count >= limit) {
         throw new HttpException(
-          `Las sesiones anónimas tienen un límite de ${maxCommentsPerDay} comentarios por día.`,
+          `Las sesiones anónimas tienen un límite de ${limit} comentarios por día.`,
           HttpStatus.TOO_MANY_REQUESTS,
         );
       }
     }
 
-    const filterEvaluation = this.contentFilterService?.evaluate(dto.content);
-    const initialStatus =
-      filterEvaluation?.status === ModerationStatus.REJECTED
-        ? ModerationStatus.REJECTED
-        : ModerationStatus.PENDING;
-    const rejectionReason = filterEvaluation?.rejectionReason ?? null;
-
+    const { status, rejectionReason } = this.evaluateContent(dto.content);
     const comment = await this.commentRepository.create({
       postId,
       parentId: dto.parent_id ?? null,
       deviceId: session.sessionId,
       userAccountId: session.userAccountId,
       content: dto.content,
-      status: initialStatus,
+      status,
       rejectionReason,
     });
 
-    const effectiveStatus =
-      comment.status === ModerationStatus.REJECTED
-        ? ModerationStatus.REJECTED
-        : ModerationStatus.PENDING;
-
-    return {
-      id: comment.id,
-      status: effectiveStatus,
-      ...(rejectionReason ? { rejection_reason: rejectionReason } : {}),
-      message:
-        effectiveStatus === ModerationStatus.REJECTED
-          ? AUTO_REJECTED_MODERATION_MESSAGE
-          : PENDING_MODERATION_MESSAGE,
-      created_at: comment.createdAt.toISOString(),
-    };
+    return this.formatSubmission(comment.id, comment.status, rejectionReason, comment.createdAt);
   }
 
   async toggleReaction(
@@ -293,11 +250,7 @@ export class PostsService {
       dto.type,
     );
 
-    return {
-      post_id: postId,
-      type: dto.type,
-      active,
-    };
+    return { post_id: postId, type: dto.type, active };
   }
 
   async toggleCommentReaction(
@@ -321,10 +274,41 @@ export class PostsService {
         )
       : false;
 
+    return { comment_id: commentId, type: dto.type, active };
+  }
+
+  private evaluateContent(content: string): {
+    status: ModerationStatus.PENDING | ModerationStatus.REJECTED;
+    rejectionReason: string | null;
+  } {
+    const evaluation = this.contentFilterService?.evaluate(content);
     return {
-      comment_id: commentId,
-      type: dto.type,
-      active,
+      status:
+        evaluation?.status === ModerationStatus.REJECTED
+          ? ModerationStatus.REJECTED
+          : ModerationStatus.PENDING,
+      rejectionReason: evaluation?.rejectionReason ?? null,
+    };
+  }
+
+  private formatSubmission(
+    id: string,
+    status: ModerationStatus,
+    rejectionReason: string | null,
+    createdAt: Date,
+  ): PendingSubmissionResponseDto {
+    const effectiveStatus =
+      status === ModerationStatus.REJECTED ? ModerationStatus.REJECTED : ModerationStatus.PENDING;
+
+    return {
+      id,
+      status: effectiveStatus,
+      ...(rejectionReason ? { rejection_reason: rejectionReason } : {}),
+      message:
+        effectiveStatus === ModerationStatus.REJECTED
+          ? AUTO_REJECTED_MODERATION_MESSAGE
+          : PENDING_MODERATION_MESSAGE,
+      created_at: createdAt.toISOString(),
     };
   }
 }

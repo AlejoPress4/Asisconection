@@ -18,6 +18,9 @@ import {
 export type NodeEnv = 'development' | 'production' | 'test';
 export type AssistantEngineMode = 'faq';
 
+/**
+ * Contrato tipado de variables de entorno validado al iniciar la aplicación (Fail-Fast).
+ */
 export class EnvironmentVariables {
   @IsInt()
   @Min(1)
@@ -92,86 +95,63 @@ export class EnvironmentVariables {
   CORS_ORIGINS?: string;
 }
 
-function parseBooleanEnv(value: unknown, fallback: boolean): boolean {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === 'true' || normalized === '1') {
-      return true;
-    }
-    if (normalized === 'false' || normalized === '0' || normalized === '') {
-      return false;
-    }
-  }
-  return fallback;
-}
+const str = (val: unknown, fallback?: string): string | undefined =>
+  typeof val === 'string' && val.trim() !== '' ? val.trim() : fallback;
 
-function parseIntEnv(value: unknown, fallback: number): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number.parseInt(value.trim(), 10);
-    return Number.isNaN(parsed) ? Number.NaN : parsed;
-  }
+const int = (val: unknown, fallback: number): number => {
+  if (typeof val === 'number' && Number.isFinite(val)) return val;
+  if (typeof val === 'string' && val.trim() !== '') return Number.parseInt(val.trim(), 10);
   return fallback;
-}
+};
 
-function parseStringEnv(value: unknown, fallback?: string): string | undefined {
-  if (typeof value === 'string' && value.trim() !== '') {
-    return value.trim();
+const bool = (val: unknown, fallback: boolean): boolean => {
+  if (typeof val === 'boolean') return val;
+  if (typeof val === 'string') {
+    const v = val.trim().toLowerCase();
+    if (v === 'true' || v === '1') return true;
+    if (v === 'false' || v === '0' || v === '') return false;
   }
   return fallback;
-}
+};
 
 export function validate(config: Record<string, unknown>): EnvironmentVariables {
-  const renderUrl =
-    parseStringEnv(config['EXTERNAL_AUTH_API_URL']) ??
-    parseStringEnv(config['RENDER_API_URL']) ??
-    parseStringEnv(config['RENDER_AUTH_API_URL']);
-
-  const normalized: Record<string, unknown> = {
-    PORT: parseIntEnv(config['PORT'], 3000),
-    NODE_ENV: parseStringEnv(config['NODE_ENV'], 'development'),
-    USE_MOCK_EXTERNAL_SERVICES: parseBooleanEnv(config['USE_MOCK_EXTERNAL_SERVICES'], false),
-    DB_LOCAL_URL: parseStringEnv(config['DB_LOCAL_URL']),
-    RENDER_API_URL: renderUrl,
-    RENDER_REGISTER_PATH: parseStringEnv(config['RENDER_REGISTER_PATH'], '/auth/registro'),
-    RENDER_LOGIN_PATH: parseStringEnv(config['RENDER_LOGIN_PATH'], '/auth/login'),
-    RENDER_PROFILE_PATH: parseStringEnv(config['RENDER_PROFILE_PATH'], '/auth/perfil'),
-    RENDER_HTTP_TIMEOUT_MS: parseIntEnv(config['RENDER_HTTP_TIMEOUT_MS'], 5000),
-    JWT_SECRET: parseStringEnv(config['JWT_SECRET']),
-    JWT_EXPIRES_IN: parseStringEnv(config['JWT_EXPIRES_IN'], '30d'),
-    ANON_MAX_POSTS_PER_DAY: parseIntEnv(config['ANON_MAX_POSTS_PER_DAY'], 3),
-    ANON_MAX_COMMENTS_PER_DAY: parseIntEnv(config['ANON_MAX_COMMENTS_PER_DAY'], 10),
-    WHATSAPP_SUPPORT_PHONE: parseStringEnv(config['WHATSAPP_SUPPORT_PHONE']),
-    WHATSAPP_DEFAULT_MESSAGE: parseStringEnv(
+  const normalized = {
+    PORT: int(config['PORT'], 3000),
+    NODE_ENV: str(config['NODE_ENV'], 'development'),
+    USE_MOCK_EXTERNAL_SERVICES: bool(config['USE_MOCK_EXTERNAL_SERVICES'], false),
+    DB_LOCAL_URL: str(config['DB_LOCAL_URL']),
+    RENDER_API_URL:
+      str(config['EXTERNAL_AUTH_API_URL']) ??
+      str(config['RENDER_API_URL']) ??
+      str(config['RENDER_AUTH_API_URL']),
+    RENDER_REGISTER_PATH: str(config['RENDER_REGISTER_PATH'], '/auth/registro'),
+    RENDER_LOGIN_PATH: str(config['RENDER_LOGIN_PATH'], '/auth/login'),
+    RENDER_PROFILE_PATH: str(config['RENDER_PROFILE_PATH'], '/auth/perfil'),
+    RENDER_HTTP_TIMEOUT_MS: int(config['RENDER_HTTP_TIMEOUT_MS'], 5000),
+    JWT_SECRET: str(config['JWT_SECRET']),
+    JWT_EXPIRES_IN: str(config['JWT_EXPIRES_IN'], '30d'),
+    ANON_MAX_POSTS_PER_DAY: int(config['ANON_MAX_POSTS_PER_DAY'], 3),
+    ANON_MAX_COMMENTS_PER_DAY: int(config['ANON_MAX_COMMENTS_PER_DAY'], 10),
+    WHATSAPP_SUPPORT_PHONE: str(config['WHATSAPP_SUPPORT_PHONE']),
+    WHATSAPP_DEFAULT_MESSAGE: str(
       config['WHATSAPP_DEFAULT_MESSAGE'],
       'Hola Fundación Asisco, requiero acompañamiento humano desde AsisConexión.',
     ),
-    ASSISTANT_ENGINE: parseStringEnv(config['ASSISTANT_ENGINE'], 'faq'),
-    CORS_ORIGINS: parseStringEnv(config['CORS_ORIGINS']),
+    ASSISTANT_ENGINE: str(config['ASSISTANT_ENGINE'], 'faq'),
+    CORS_ORIGINS: str(config['CORS_ORIGINS']),
   };
 
-  const validatedConfig = plainToInstance(EnvironmentVariables, normalized, {
+  const validated = plainToInstance(EnvironmentVariables, normalized, {
     enableImplicitConversion: false,
   });
-
-  const errors = validateSync(validatedConfig, {
-    skipMissingProperties: false,
-  });
+  const errors = validateSync(validated, { skipMissingProperties: false });
 
   if (errors.length > 0) {
-    const messages = errors
-      .map((err) => {
-        const constraints = err.constraints ? Object.values(err.constraints).join(', ') : 'inválido';
-        return `${err.property}: ${constraints}`;
-      })
+    const details = errors
+      .map((e) => `${e.property}: ${Object.values(e.constraints ?? {}).join(', ') || 'inválido'}`)
       .join('; ');
-    throw new Error(`Error de configuración en variables de entorno: ${messages}`);
+    throw new Error(`Error de configuración en variables de entorno: ${details}`);
   }
 
-  return validatedConfig;
+  return validated;
 }

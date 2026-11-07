@@ -1,113 +1,124 @@
-# AsisConexión Backend (MVP v2.0.0)
+# AsisConexión Backend (`v2.0.0`)
 
-Backend **Monolito Modular en NestJS + TypeScript estricto** para **AsisConexión**, la puerta de entrada móvil (React Native) y Web de la **Fundación Asisco**.
-
-Construido bajo metodología **Spec-Driven Development (SDD OpenAPI-First)** y gobernado por la Constitución del proyecto (`v2.0.0`): prohibición absoluta de `any`, principios **SOLID** estrictos con **Inversión de Dependencias (DIP)**, persistencia única PostgreSQL (`ASISCONEXION_DB`), integración HTTP con el servicio central de identidad en **Render / Supabase**, errores homologados **RFC 7807 (`application/problem+json`)**, paginación obligatoria para gama de entrada (**RT-01**), moderación en dos capas (**Filtro Automático + RN-02**) y trazabilidad de consentimiento conforme a la **Ley 1581 de 2012** y **Ley 1098 de 2006** (Colombia).
+Backend **Monolito Modular en NestJS + TypeScript estricto** para **AsisConexión** (clientes React Native y Web de la **Fundación Asisco**).
 
 ---
 
-## 1. ¿Qué se implementó en el proyecto (v2.0.0)?
+## 1. Visión General para Nuevos Desarrolladores
 
-Se completó la implementación integral del backend MVP v2 organizada en **2 capas transversales** y **5 módulos de dominio independientes**:
+¿Cómo funciona el sistema en 4 puntos clave?
 
-1. **Infraestructura Transversal (`src/config/`, `src/common/`, `src/database/`)**:
-   - **Validación tipada fail-fast** de variables de entorno (`env.validation.ts`).
-   - **Persistencia Única PostgreSQL** (`DatabaseModule`): conexión de lectura/escritura sobre `ASISCONEXION_DB` (`default`), eliminando toda conexión directa a bases de datos externas.
-   - **Autenticación por Sesión de Dispositivo con JWT** (`SessionAuthModule`, `SessionTokenService`, `DeviceSessionGuard`, `OptionalDeviceSessionGuard`, `RolesGuard`): emisión de tokens JWT únicos (`jti`) vinculados a `DeviceSession` en BD y validación de roles `ADMIN` (`external_roles`) y `MODERATOR` (`local_role`).
-   - **Calidad y Seguridad**: filtro global RFC 7807 (`AllExceptionsFilter`), redacción recursiva de credenciales en logs (`redactSensitiveFields`), protección contra coerción booleana en consentimiento legal (`preserveRawConsentValue`) y paginación estándar `RT-01` (`PaginationQueryDto`, `PaginationMetaDto`).
-   - **Migraciones y Semillas Idempotentes**: 5 migraciones SQL reversibles (`1761430000000`–`1761430400000`) y 3 seeders (`categories`, `redirection_links`, `faq_knowledge`).
-2. **US1 & US2 — Identidad Híbrida, Sesiones, Perfil `Actor` y Conexiones (`AuthSessionModule`)**:
-   - Login (`/v1/auth/login` y alias `/v1/auth/sync-session`) y registro (`/v1/auth/registro`) consumiendo el servicio HTTP de Render/Supabase (`https://proyecto-integrador-backend-g2.onrender.com`) mediante `IExternalAuthAdapter`, persistiendo transaccionalmente `UserAccount` (con `external_user_id` numérico, `external_roles` y sin `clave`), perfil `Actor` 1:1 y `DeviceSession` antes de firmar el `device_token`.
-   - Sesiones rápidas anónimas por dispositivo (`/v1/sessions/anonymous`) con cuota diaria de publicación y sin perfil `Actor`.
-   - Perfiles extendidos y red de conexiones (`Actor` y `ActorConnection`: `/v1/actors/me`, `/v1/actors/:id`, `/v1/connections`, `/v1/connections/:id`) exclusivos para usuarios registrados.
-3. **US3 — Foros Comunitarios Públicos Enriquecidos (`SocialModule`)**:
-   - Listado paginado de categorías públicas con tema principal e imagen de portada (`/v1/categories`) y muro público exclusivamente con publicaciones `APPROVED` (`/v1/posts`), incluyendo `media_urls`, resumen de reacciones y últimos 3 comentarios aprobados.
-   - Creación de publicaciones con múltiples URLs multimedia (`PostMedia`), hilos de comentarios anidados (`parent_id`), y reacciones alternables (`LIKE`, `SUPPORT`, `THANKS`) tanto en publicaciones (`/v1/posts/:postId/reactions`) como en comentarios (`/v1/comments/:id/reactions`).
-4. **US4 — Moderación en Dos Capas y Gestión de Moderadores (`ModerationModule`)**:
-   - **Capa 1 (Filtro Automático OCP)**: `ContentFilterService` evalúa cada publicación y comentario mediante reglas `IContentRule` (`ProfanityContentRule`, `ExternalLinkContentRule`, `MinorDataContentRule`, `SpamContentRule`); si infringe alguna regla, se persiste inmediatamente con `status = 'REJECTED'` y `rejection_reason = 'AUTO_FILTER'`.
-   - **Capa 2 (Moderación Humana RN-02)**: El contenido que supera el filtro automático nace en `status = 'PENDING'` y es revisado en `/v1/admin/moderation/*` por usuarios `ADMIN` o `MODERATOR` (`rejection_reason = 'HUMAN'`).
-   - **Gestión de Moderadores Globales**: Los usuarios `ADMIN` pueden listar (`GET /v1/admin/moderators`), asignar (`PUT /v1/admin/moderators/:userAccountId`) y revocar (`DELETE /v1/admin/moderators/:userAccountId`) el rol global `MODERATOR`.
-5. **US5 — Directorio de Módulos Satélites (`DirectoryModule`)**:
-   - Catálogo paginado de enlaces activos (`SUMA 21`, `AULA UP`, `SAGA-UP`) con URLs HTTPS limpias para apertura nativa externa.
-6. **US6 — Asistente Orientativo y Escalamiento a WhatsApp (`AssistantModule`)**:
-   - Consulta de preguntas frecuentes filtrables por categoría (`/v1/assistant/faqs`) con *disclaimer* institucional obligatorio mediante `IAssistantEngineProvider` (`FaqRuleEngineProvider`) y generación de enlace directo a WhatsApp (`/v1/assistant/escalate`).
+1. **Una sola Base de Datos Propia (`ASISCONEXION_DB` en PostgreSQL / Supabase)**:
+   - Todas las tablas del foro, sesiones, perfiles `Actor`, conexiones, reacciones, enlaces y FAQs viven en una única base de datos PostgreSQL configurada en `DB_LOCAL_URL`.
+2. **Autenticación Delegada por HTTP (`Render / Supabase`)**:
+   - El backend **nunca guarda contraseñas (`clave`)**.
+   - Cuando un usuario hace login (`POST /v1/auth/login`) o se registra (`POST /v1/auth/registro`), `ExternalAuthHttpAdapter` valida las credenciales contra el servicio central (`RENDER_API_URL`), sincroniza localmente `UserAccount` + `Actor` (1:1) y emite un JWT propio de sesión (`device_token`).
+   - Los visitantes sin cuenta pueden iniciar una sesión rápida por dispositivo (`POST /v1/sessions/anonymous`) con límite diario de publicación y sin perfil `Actor`.
+3. **Moderación en Dos Capas (`ContentFilterService` + `RN-02`)**:
+   - **Capa 1 (Filtro Automático)**: Todo `Post` y `Comment` pasa primero por `ContentFilterService` (groserías, enlaces externos, datos de menores y spam). Si infringe alguna regla, se guarda como `REJECTED` (`rejection_reason = 'AUTO_FILTER'`).
+   - **Capa 2 (Revisión Humana `RN-02`)**: Si supera el filtro automático, nace en `status = 'PENDING'`. Solo se muestra en el muro público (`GET /v1/posts`) cuando un `ADMIN` o `MODERATOR` lo aprueba (`APPROVED`).
+4. **Roles Globales (`ADMIN` y `MODERATOR`)**:
+   - Quienes vienen con `'ADMIN'` desde el servicio externo tienen permisos completos de administración y pueden nombrar o revocar moderadores globales (`PUT/DELETE /v1/admin/moderators/:userAccountId`).
+   - Los `MODERATOR` pueden aprobar o rechazar publicaciones y comentarios pendientes, pero no gestionar otros moderadores.
 
 ---
 
-## 2. Arquitectura del Proyecto (v2.0.0)
+## 2. Arquitectura y Estructura del Código (`src/`)
 
-```mermaid
-flowchart LR
-    Client["Clientes React Native / Web"] -->|"HTTP REST /v1 + Bearer JWT"| Controllers["Capas Controller (HTTP + Swagger)"]
+Cada módulo sigue separación estricta de responsabilidades (**SOLID / DIP**):
+- `*.controller.ts`: Rutas HTTP, validación de entrada (`DTOs`) y documentación `@nestjs/swagger`.
+- `*.service.ts`: Reglas de negocio (depende de interfaces `Symbol`, nunca de repositorios concretos).
+- `*.repository.ts` / `*.adapter.ts`: Consultas TypeORM/SQL o llamadas HTTP externas (`@nestjs/axios`).
 
-    subgraph Monolito["AsisConexión Backend (NestJS Monolito Modular)"]
-      Controllers --> Guards["DeviceSessionGuard / RolesGuard"]
-      Guards --> Services["Servicios de Dominio (*.service.ts)"]
-      Services -->|"DIP: Symbol Tokens"| Ports["Interfaces de Dominio (Ports)"]
-      Ports --> LocalRepos["Repositorios Locales (TypeORM)"]
-      Ports --> AuthAdapter["RenderAuthHttpAdapter (@nestjs/axios)"]
-      Ports --> FilterEngine["ContentFilterService (IContentRule)"]
-      Ports --> FaqEngine["FaqRuleEngineProvider (OCP)"]
-    end
-
-    LocalRepos -->|"Lectura / Escritura"| LocalDB[("ASISCONEXION_DB\nPostgreSQL Única")]
-    AuthAdapter -->|"POST /auth/login\nPOST /auth/registro\nGET /auth/perfil"| ExtAPI["Servicio Central de Identidad\n(Render / Supabase)"]
+```text
+src/
+├── main.ts                          # Bootstrap, ValidationPipe, AllExceptionsFilter (RFC 7807) y Swagger (/api/docs)
+├── app.module.ts                    # Módulo raíz que ensambla los 5 módulos de dominio
+├── config/
+│   └── env.validation.ts            # Validación tipada de variables de entorno (.env)
+├── common/
+│   ├── auth/                        # Emisión/verificación de JWT de sesión (SessionTokenService)
+│   ├── decorators/                  # @CurrentSession() y @Roles('ADMIN', 'MODERATOR')
+│   ├── dto/                         # Paginación estándar (PaginationQueryDto, PaginationMetaDto)
+│   ├── enums/                       # ModerationStatus (PENDING/APPROVED/REJECTED), ReactionType
+│   ├── filters/                     # AllExceptionsFilter (errores en formato RFC 7807 problem+json)
+│   ├── guards/                      # DeviceSessionGuard, OptionalDeviceSessionGuard, RolesGuard
+│   └── utils/                       # Redacción de campos sensibles en logs y validación booleana
+├── database/
+│   ├── database.module.ts           # Conexión TypeORM PostgreSQL (con soporte SSL automático para Supabase)
+│   ├── data-source.ts               # Configuración para CLI de migraciones y seeders
+│   ├── migrations/                  # 5 migraciones SQL reversibles del esquema completo
+│   └── seeds/                       # Datos iniciales idempotentes (categorías, directorio, FAQs)
+└── modules/
+    ├── auth-session/                # Login/registro Render, sesiones anónimas, perfiles Actor y conexiones
+    ├── social/                      # Categorías públicas, posts con media_urls, hilos de comentarios y reacciones
+    ├── moderation/                  # ContentFilterService (4 reglas OCP), cola PENDING y gestión de MODERATOR
+    ├── directory/                   # Enlaces a módulos satélites (SUMA 21, AULA UP, SAGA-UP)
+    └── assistant/                   # Preguntas frecuentes (FaqRuleEngineProvider) y enlace a WhatsApp
 ```
 
+Para una guía detallada de mantenimiento y extensión del código, consulta [docs/GUIA_MANTENIMIENTO.md](file:///home/molton334/Development/Poj-int/Asisconection/docs/GUIA_MANTENIMIENTO.md).
+
 ---
 
-## 3. Catálogo de Endpoints (`/v1`)
+## 3. Mapa Completo de Endpoints (`/v1`)
 
-| Módulo | Método y Ruta | Auth | Descripción |
+| Módulo | Método y Ruta | Permisos | Descripción |
 |---|---|---|---|
-| `AuthSession` | `POST /v1/auth/registro` | Bearer opcional | Registra en Render/Supabase, sincroniza `UserAccount` + `Actor` y emite `device_token` |
-| `AuthSession` | `POST /v1/auth/login` | Bearer opcional | Autentica en Render (`POST /auth/login`), sincroniza `UserAccount` + `Actor` y emite `device_token` |
-| `AuthSession` | `POST /v1/auth/sync-session` | Bearer opcional | Alias de login sincronizado por compatibilidad |
-| `AuthSession` | `POST /v1/sessions/anonymous` | Público | Crea sesión rápida de dispositivo con consentimiento Ley 1581 |
-| `AuthSession` | `GET /v1/actors/me` | `Bearer JWT` (Registrado) | Obtiene perfil `Actor` del usuario autenticado |
-| `AuthSession` | `PATCH /v1/actors/me` | `Bearer JWT` (Registrado) | Actualiza perfil `Actor` del usuario autenticado |
-| `AuthSession` | `GET /v1/actors/:id` | Público | Consulta perfil público de un `Actor` por UUID |
-| `AuthSession` | `GET /v1/connections` | `Bearer JWT` (Registrado) | Lista conexiones del `Actor` autenticado |
-| `AuthSession` | `POST /v1/connections` | `Bearer JWT` (Registrado) | Envía solicitud de conexión (`PENDING`) a otro `Actor` |
-| `AuthSession` | `PATCH /v1/connections/:id` | `Bearer JWT` (Registrado) | Acepta (`ACCEPTED`) o bloquea (`BLOCKED`) una conexión |
-| `Social` | `GET /v1/categories` | Público | Lista categorías públicas paginadas (`RT-01`) |
-| `Social` | `GET /v1/posts` | Público | Lista únicamente publicaciones `APPROVED` con `media_urls`, reacciones y comentarios |
-| `Social` | `POST /v1/posts` | `Bearer JWT` | Crea publicación evaluando `ContentFilterService` (`PENDING` o `REJECTED` por `AUTO_FILTER`) |
-| `Social` | `POST /v1/posts/:postId/comments` | `Bearer JWT` | Crea comentario (con soporte `parent_id`) evaluando `ContentFilterService` |
-| `Social` | `POST /v1/posts/:postId/reactions` | `Bearer JWT` | Alterna (`toggle`) reacción `LIKE`, `SUPPORT` o `THANKS` en publicación |
-| `Social` | `POST /v1/comments/:id/reactions` | `Bearer JWT` | Alterna (`toggle`) reacción `LIKE`, `SUPPORT` o `THANKS` en comentario |
-| `Moderation` | `GET /v1/admin/moderation/pending` | `Bearer JWT` (`ADMIN` / `MODERATOR`) | Cola paginada de publicaciones y comentarios en `PENDING` |
-| `Moderation` | `PATCH /v1/admin/moderation/posts/:id/status` | `Bearer JWT` (`ADMIN` / `MODERATOR`) | Aprueba (`APPROVED`) o rechaza (`REJECTED`) una publicación |
-| `Moderation` | `PATCH /v1/admin/moderation/comments/:id/status` | `Bearer JWT` (`ADMIN` / `MODERATOR`) | Aprueba (`APPROVED`) o rechaza (`REJECTED`) un comentario |
-| `Moderation` | `GET /v1/admin/moderators` | `Bearer JWT` (`ADMIN`) | Lista usuarios con rol global `MODERATOR` |
-| `Moderation` | `PUT /v1/admin/moderators/:userAccountId` | `Bearer JWT` (`ADMIN`) | Asigna rol global `MODERATOR` a un usuario registrado |
-| `Moderation` | `DELETE /v1/admin/moderators/:userAccountId` | `Bearer JWT` (`ADMIN`) | Revoca rol global `MODERATOR` |
-| `Directory` | `GET /v1/directory/links` | Público | Lista enlaces activos hacia módulos satélites (`SUMA 21`, `AULA UP`, `SAGA-UP`) |
-| `Assistant` | `GET /v1/assistant/faqs` | Público | Lista FAQs filtrables por categoría con *disclaimer* obligatorio |
-| `Assistant` | `POST /v1/assistant/escalate` | Público | Genera URL `https://wa.me/...` hacia atención humana oficial |
+| **AuthSession** | `POST /v1/auth/registro` | Público / Bearer opc. | Registra en Render, crea `UserAccount` + `Actor` y devuelve `device_token` |
+| **AuthSession** | `POST /v1/auth/login` | Público / Bearer opc. | Autentica en Render, sincroniza `UserAccount` + `Actor` y devuelve `device_token` |
+| **AuthSession** | `POST /v1/auth/sync-session` | Público / Bearer opc. | Alias compatible de `/v1/auth/login` |
+| **AuthSession** | `POST /v1/sessions/anonymous` | Público | Crea sesión rápida por dispositivo (`user_account_id = null`) |
+| **Actors** | `GET /v1/actors/me` | `Bearer` (Registrado) | Obtiene el perfil `Actor` del usuario autenticado (`403` si es anónimo) |
+| **Actors** | `PATCH /v1/actors/me` | `Bearer` (Registrado) | Actualiza nombres, rol principal, avatar o biografía del `Actor` |
+| **Actors** | `GET /v1/actors/:id` | Público | Consulta el perfil público de un `Actor` por su UUID |
+| **Connections** | `GET /v1/connections` | `Bearer` (Registrado) | Lista paginada de conexiones del `Actor` actual |
+| **Connections** | `POST /v1/connections` | `Bearer` (Registrado) | Envía solicitud de conexión (`PENDING`) a otro `Actor` |
+| **Connections** | `PATCH /v1/connections/:id` | `Bearer` (Registrado) | Acepta (`ACCEPTED`) o bloquea (`BLOCKED`) una solicitud de conexión |
+| **Social** | `GET /v1/categories` | Público | Lista paginada de categorías temáticas públicas |
+| **Social** | `GET /v1/posts` | Público | Muro público: solo publicaciones `APPROVED` con `media_urls`, reacciones y comentarios |
+| **Social** | `POST /v1/posts` | `Bearer` | Crea publicación (pasa por `ContentFilterService` → `PENDING` o `REJECTED`) |
+| **Social** | `POST /v1/posts/:postId/comments` | `Bearer` | Crea comentario raíz o respuesta en hilo (`parent_id`) |
+| **Social** | `POST /v1/posts/:postId/reactions` | `Bearer` | Alterna (`toggle`) reacción `LIKE`, `SUPPORT` o `THANKS` en una publicación |
+| **Social** | `POST /v1/comments/:id/reactions` | `Bearer` | Alterna (`toggle`) reacción `LIKE`, `SUPPORT` o `THANKS` en un comentario |
+| **Moderation** | `GET /v1/admin/moderation/pending` | `ADMIN` o `MODERATOR` | Cola unificada paginada de publicaciones y comentarios `PENDING` |
+| **Moderation** | `PATCH /v1/admin/moderation/posts/:id/status` | `ADMIN` o `MODERATOR` | Aprueba (`APPROVED`) o rechaza (`REJECTED`) una publicación |
+| **Moderation** | `PATCH /v1/admin/moderation/comments/:id/status` | `ADMIN` o `MODERATOR` | Aprueba (`APPROVED`) o rechaza (`REJECTED`) un comentario |
+| **Moderation** | `GET /v1/admin/moderators` | Solo `ADMIN` | Lista usuarios con rol global `MODERATOR` |
+| **Moderation** | `PUT /v1/admin/moderators/:userAccountId` | Solo `ADMIN` | Asigna rol global `MODERATOR` a un usuario registrado |
+| **Moderation** | `DELETE /v1/admin/moderators/:userAccountId` | Solo `ADMIN` | Revoca rol global `MODERATOR` |
+| **Directory** | `GET /v1/directory/links` | Público | Enlaces activos hacia `SUMA 21`, `AULA UP` y `SAGA-UP` |
+| **Assistant** | `GET /v1/assistant/faqs` | Público | Preguntas frecuentes filtrables por categoría con *disclaimer* obligatorio |
+| **Assistant** | `POST /v1/assistant/escalate` | Público | Genera URL directa a WhatsApp oficial para atención humana |
 
 ---
 
-## 4. Comandos Principales
+## 4. Puesta en Marcha Rápida
 
 ```bash
-# 1. Instalar dependencias y configurar variables de entorno
-npm install
+# 1. Instalar dependencias
+npm ci
+
+# 2. Configurar variables de entorno (.env)
 cp .env.example .env
 
-# 2. Ejecutar migraciones y semillas idempotentes en ASISCONEXION_DB
+# 3. Ejecutar migraciones y datos semilla en PostgreSQL / Supabase
 npm run migration:run
 npm run seed:dev
 
-# 3. Levantar servidor en desarrollo (http://localhost:3000/v1)
+# 4. Iniciar servidor en modo desarrollo (http://localhost:3000/v1)
 npm run start:dev
-
-# 4. Verificación de calidad, pruebas y exportación OpenAPI
-npm run lint
-npm run build
-npm run test
-npm run test:e2e
-npm run openapi:export
 ```
 
-- **Documentación interactiva Swagger (OpenAPI)**: `http://localhost:3000/api/docs`
+### Comandos de Verificación y Calidad
+
+```bash
+npm run build           # Compila TypeScript estricto a dist/
+npm run lint            # Ejecuta ESLint sin permitir warnings (--max-warnings=0)
+npm run test            # Pruebas unitarias (filtro automático OCP, FAQ y redacción de logs)
+npm run test:e2e        # Pruebas de integración/contrato E2E de todos los módulos
+npm run openapi:export  # Exporta dist/openapi.generated.json
+```
+
+- **Swagger UI interactivo**: `http://localhost:3000/api/docs`
+- **Colección Postman / Insomnia**: [AsisConexion_v2.postman_collection.json](file:///home/molton334/Development/Poj-int/Asisconection/specs/001-asisconexion-mvp/contracts/AsisConexion_v2.postman_collection.json)
