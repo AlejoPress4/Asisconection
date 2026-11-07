@@ -1,7 +1,7 @@
 {
   "name": "asisconexion-backend",
-  "version": "1.0.0",
-  "description": "AsisConexión MVP — Backend Monolito Modular en NestJS con Persistencia Dual PostgreSQL",
+  "version": "2.0.0",
+  "description": "AsisConexión Backend v2.0.0 — Monolito Modular en NestJS con Persistencia Única PostgreSQL",
   "private": true,
   "license": "UNLICENSED",
   "engines": {
@@ -21,7 +21,7 @@
     "migration:revert": "npm run typeorm -- migration:revert",
     "migration:generate": "npm run typeorm -- migration:generate",
     "seed:dev": "ts-node -r tsconfig-paths/register src/database/seeds/run-seeds.ts",
-    "openapi:export": "ts-node -r tsconfig-paths/register src/scripts/export-openapi.ts"
+    "openapi:export": "nest build && node dist/scripts/export-openapi.js"
   },
   "dependencies": {
     "@nestjs/axios": "^3.1.2",

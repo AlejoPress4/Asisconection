@@ -11,21 +11,9 @@ import {
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBadRequestResponse,
-  ApiBearerAuth,
-  ApiCreatedResponse,
-  ApiForbiddenResponse,
-  ApiNotFoundResponse,
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-  ApiTooManyRequestsResponse,
-  ApiUnauthorizedResponse,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { SessionContext } from '../../../common/auth/interfaces/session-context.interface';
 import { CurrentSession } from '../../../common/decorators/current-session.decorator';
-import { ProblemDetailsDto } from '../../../common/filters/all-exceptions.filter';
 import { DeviceSessionGuard } from '../../../common/guards/device-session.guard';
 import { CreateCommentDto } from '../dto/create-comment.dto';
 import { CreatePostDto } from '../dto/create-post.dto';
@@ -51,24 +39,16 @@ function requireSession(session: SessionContext | undefined): SessionContext {
 export class PostsController {
   constructor(private readonly postsService: PostsService) {}
 
+  /** Lista exclusivamente publicaciones con status = APPROVED (RT-01, RN-02) */
   @Get('posts')
-  @ApiOperation({ summary: 'Lista exclusivamente publicaciones con status = APPROVED (RT-01, RN-02)' })
-  @ApiOkResponse({ type: PostsPageDto })
-  @ApiBadRequestResponse({ type: ProblemDetailsDto })
   async listApproved(@Query() query: ListPostsQueryDto): Promise<PostsPageDto> {
     return this.postsService.listApproved(query);
   }
 
+  /** Crea publicación evaluando filtro automático previo y cola PENDING (RN-02) */
   @Post('posts')
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
-  @ApiOperation({ summary: 'Crea publicación evaluando filtro automático previo y cola PENDING (RN-02)' })
-  @ApiCreatedResponse({ type: PendingSubmissionResponseDto })
-  @ApiBadRequestResponse({ type: ProblemDetailsDto })
-  @ApiUnauthorizedResponse({ type: ProblemDetailsDto })
-  @ApiForbiddenResponse({ type: ProblemDetailsDto })
-  @ApiNotFoundResponse({ type: ProblemDetailsDto })
-  @ApiTooManyRequestsResponse({ type: ProblemDetailsDto })
   async createPost(
     @CurrentSession() session: SessionContext | undefined,
     @Body() dto: CreatePostDto,
@@ -76,15 +56,10 @@ export class PostsController {
     return this.postsService.createPost(requireSession(session), dto);
   }
 
+  /** Crea comentario o respuesta en hilo (parent_id) con filtro automático y cola PENDING */
   @Post('posts/:postId/comments')
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
-  @ApiOperation({ summary: 'Crea comentario o respuesta en hilo (parent_id) con filtro automático y cola PENDING' })
-  @ApiCreatedResponse({ type: PendingSubmissionResponseDto })
-  @ApiBadRequestResponse({ type: ProblemDetailsDto })
-  @ApiUnauthorizedResponse({ type: ProblemDetailsDto })
-  @ApiNotFoundResponse({ type: ProblemDetailsDto })
-  @ApiTooManyRequestsResponse({ type: ProblemDetailsDto })
   async createComment(
     @CurrentSession() session: SessionContext | undefined,
     @Param('postId', new ParseUUIDPipe()) postId: string,
@@ -93,15 +68,11 @@ export class PostsController {
     return this.postsService.createComment(requireSession(session), postId, dto);
   }
 
+  /** Alterna (toggle) una reacción rápida en publicación (LIKE, SUPPORT, THANKS) */
   @Post('posts/:postId/reactions')
   @HttpCode(HttpStatus.OK)
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
-  @ApiOperation({ summary: 'Alterna (toggle) una reacción rápida en publicación (LIKE, SUPPORT, THANKS)' })
-  @ApiOkResponse({ type: ToggleReactionResponseDto })
-  @ApiBadRequestResponse({ type: ProblemDetailsDto })
-  @ApiUnauthorizedResponse({ type: ProblemDetailsDto })
-  @ApiNotFoundResponse({ type: ProblemDetailsDto })
   async toggleReaction(
     @CurrentSession() session: SessionContext | undefined,
     @Param('postId', new ParseUUIDPipe()) postId: string,
@@ -110,12 +81,11 @@ export class PostsController {
     return this.postsService.toggleReaction(requireSession(session), postId, dto);
   }
 
+  /** Alterna (toggle) una reacción rápida en un comentario aprobado */
   @Post('comments/:id/reactions')
   @HttpCode(HttpStatus.OK)
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
-  @ApiOperation({ summary: 'Alterna (toggle) una reacción rápida en un comentario aprobado' })
-  @ApiOkResponse({ type: ToggleCommentReactionResponseDto })
   async toggleCommentReaction(
     @CurrentSession() session: SessionContext | undefined,
     @Param('id', new ParseUUIDPipe()) commentId: string,

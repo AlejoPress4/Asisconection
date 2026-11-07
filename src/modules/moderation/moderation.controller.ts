@@ -10,18 +10,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBadRequestResponse,
-  ApiBearerAuth,
-  ApiForbiddenResponse,
-  ApiNotFoundResponse,
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-  ApiUnauthorizedResponse,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { ProblemDetailsDto } from '../../common/filters/all-exceptions.filter';
 import { DeviceSessionGuard } from '../../common/guards/device-session.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ModerationPendingPageDto } from './dto/moderation-pending-page.dto';
@@ -38,25 +28,16 @@ import { ModerationService } from './moderation.service';
 export class ModerationController {
   constructor(private readonly moderationService: ModerationService) {}
 
+  /** Lista publicaciones y comentarios en estado PENDING (ADMIN y MODERATOR) */
   @Get('moderation/pending')
   @Roles('ADMIN', 'MODERATOR')
-  @ApiOperation({ summary: 'Lista publicaciones y comentarios en estado PENDING (ADMIN y MODERATOR)' })
-  @ApiOkResponse({ type: ModerationPendingPageDto })
-  @ApiBadRequestResponse({ type: ProblemDetailsDto })
-  @ApiUnauthorizedResponse({ type: ProblemDetailsDto })
-  @ApiForbiddenResponse({ type: ProblemDetailsDto })
   async listPending(@Query() query: PendingQueryDto): Promise<ModerationPendingPageDto> {
     return this.moderationService.listPending(query);
   }
 
+  /** Aprueba (APPROVED) o rechaza (REJECTED) una publicación */
   @Patch('moderation/posts/:id/status')
   @Roles('ADMIN', 'MODERATOR')
-  @ApiOperation({ summary: 'Aprueba (APPROVED) o rechaza (REJECTED) una publicación' })
-  @ApiOkResponse({ type: ModerationStatusUpdatedDto })
-  @ApiBadRequestResponse({ type: ProblemDetailsDto })
-  @ApiUnauthorizedResponse({ type: ProblemDetailsDto })
-  @ApiForbiddenResponse({ type: ProblemDetailsDto })
-  @ApiNotFoundResponse({ type: ProblemDetailsDto })
   async updatePostStatus(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateModerationStatusDto,
@@ -64,14 +45,9 @@ export class ModerationController {
     return this.moderationService.updatePostStatus(id, dto);
   }
 
+  /** Aprueba (APPROVED) o rechaza (REJECTED) un comentario */
   @Patch('moderation/comments/:id/status')
   @Roles('ADMIN', 'MODERATOR')
-  @ApiOperation({ summary: 'Aprueba (APPROVED) o rechaza (REJECTED) un comentario' })
-  @ApiOkResponse({ type: ModerationStatusUpdatedDto })
-  @ApiBadRequestResponse({ type: ProblemDetailsDto })
-  @ApiUnauthorizedResponse({ type: ProblemDetailsDto })
-  @ApiForbiddenResponse({ type: ProblemDetailsDto })
-  @ApiNotFoundResponse({ type: ProblemDetailsDto })
   async updateCommentStatus(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateModerationStatusDto,
@@ -79,31 +55,25 @@ export class ModerationController {
     return this.moderationService.updateCommentStatus(id, dto);
   }
 
+  /** Lista usuarios con rol global MODERATOR (Exclusivo ADMIN) */
   @Get('moderators')
   @Roles('ADMIN')
-  @ApiOperation({ summary: 'Lista usuarios con rol global MODERATOR (Exclusivo ADMIN)' })
-  @ApiOkResponse({ type: [ModeratorAccountItemDto] })
-  @ApiForbiddenResponse({ type: ProblemDetailsDto })
   async listModerators(): Promise<ModeratorAccountItemDto[]> {
     return this.moderationService.listModerators();
   }
 
+  /** Asigna rol global MODERATOR a un usuario registrado (Exclusivo ADMIN) */
   @Put('moderators/:userAccountId')
   @Roles('ADMIN')
-  @ApiOperation({ summary: 'Asigna rol global MODERATOR a un usuario registrado (Exclusivo ADMIN)' })
-  @ApiOkResponse({ type: ModeratorAccountItemDto })
-  @ApiForbiddenResponse({ type: ProblemDetailsDto })
   async assignModerator(
     @Param('userAccountId', new ParseUUIDPipe()) userAccountId: string,
   ): Promise<ModeratorAccountItemDto> {
     return this.moderationService.assignModerator(userAccountId);
   }
 
+  /** Revoca rol global MODERATOR de un usuario registrado (Exclusivo ADMIN) */
   @Delete('moderators/:userAccountId')
   @Roles('ADMIN')
-  @ApiOperation({ summary: 'Revoca rol global MODERATOR de un usuario registrado (Exclusivo ADMIN)' })
-  @ApiOkResponse({ type: ModeratorAccountItemDto })
-  @ApiForbiddenResponse({ type: ProblemDetailsDto })
   async revokeModerator(
     @Param('userAccountId', new ParseUUIDPipe()) userAccountId: string,
   ): Promise<ModeratorAccountItemDto> {

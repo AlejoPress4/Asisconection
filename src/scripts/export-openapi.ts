@@ -4,12 +4,12 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { NestFactory } from '@nestjs/core';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { DEVICE_SESSION_READER } from '../common/auth/interfaces/i-device-session-reader';
 import { SessionTokenService } from '../common/auth/session-token.service';
 import { DeviceSessionGuard } from '../common/guards/device-session.guard';
 import { OptionalDeviceSessionGuard } from '../common/guards/optional-device-session.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { buildOpenApiDocument } from '../config/swagger.config';
 import { AssistantController } from '../modules/assistant/assistant.controller';
 import { AssistantService } from '../modules/assistant/assistant.service';
 import { ASSISTANT_ENGINE_PROVIDER } from '../modules/assistant/interfaces/i-assistant-engine.provider';
@@ -108,26 +108,7 @@ async function exportOpenApiDocument(): Promise<void> {
   const app = await NestFactory.create(OpenApiExportModule, { logger: false });
   app.setGlobalPrefix('v1');
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('AsisConexión Backend API')
-    .setDescription(
-      'Contrato OpenAPI-First (SDD v2) del Monolito Modular AsisConexión Backend. Opera con persistencia única PostgreSQL (ASISCONEXION_DB) e integración HTTP con el servicio central de identidad en Render/Supabase.',
-    )
-    .setVersion('2.0.0')
-    .addServer('http://localhost:3000', 'Servidor de desarrollo local')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        description:
-          'Token JWT local emitido por AsisConexión (`device_token`) validado por `DeviceSessionGuard`.',
-      },
-      'DeviceSessionBearer',
-    )
-    .build();
-
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  const document = buildOpenApiDocument(app);
   const outputPath = resolve(process.cwd(), 'dist', 'openapi.generated.json');
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${JSON.stringify(document, null, 2)}\n`, 'utf8');

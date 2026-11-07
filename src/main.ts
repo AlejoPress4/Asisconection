@@ -1,11 +1,11 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { validationExceptionFactory } from './common/filters/validation-exception.factory';
 import type { EnvironmentVariables } from './config/env.validation';
+import { setupSwagger } from './config/swagger.config';
 
 export async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
@@ -22,9 +22,7 @@ export async function bootstrap(): Promise<void> {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
+      transformOptions: { enableImplicitConversion: true },
       exceptionFactory: validationExceptionFactory,
     }),
   );
@@ -36,33 +34,13 @@ export async function bootstrap(): Promise<void> {
       ? corsOrigins
           .split(',')
           .map((origin) => origin.trim())
-          .filter((origin) => origin.length > 0)
+          .filter(Boolean)
       : true,
     credentials: true,
   });
 
   app.enableShutdownHooks();
-
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('AsisConexión Backend API')
-    .setDescription(
-      'Contrato OpenAPI-First (SDD) del Monolito Modular AsisConexión Backend v2.0.0. Opera con persistencia única PostgreSQL (ASISCONEXION_DB), integración HTTP con el servicio central de autenticación en Render/Supabase y moderación en dos capas.',
-    )
-    .setVersion('2.0.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        description:
-          'Token JWT local emitido por AsisConexión (`device_token`) validado por `DeviceSessionGuard`.',
-      },
-      'DeviceSessionBearer',
-    )
-    .build();
-
-  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, swaggerDocument);
+  setupSwagger(app);
 
   await app.listen(port);
   logger.log(`AsisConexión Backend escuchando en http://localhost:${port}/v1`);

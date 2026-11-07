@@ -9,19 +9,10 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiCreatedResponse,
-  ApiForbiddenResponse,
-  ApiNotFoundResponse,
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { SessionContext } from '../../common/auth/interfaces/session-context.interface';
 import { CurrentSession } from '../../common/decorators/current-session.decorator';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
-import { ProblemDetailsDto } from '../../common/filters/all-exceptions.filter';
 import { DeviceSessionGuard } from '../../common/guards/device-session.guard';
 import { ActorsService } from './actors.service';
 import {
@@ -38,26 +29,18 @@ import {
 export class ActorsController {
   constructor(private readonly actorsService: ActorsService) {}
 
+  /** Consulta el perfil Actor del usuario registrado actual (prohibido para anónimos) */
   @Get('actors/me')
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
-  @ApiOperation({
-    summary: 'Consulta el perfil Actor del usuario registrado actual (prohibido para anónimos)',
-  })
-  @ApiOkResponse({ type: ActorProfileResponseDto })
-  @ApiForbiddenResponse({ type: ProblemDetailsDto })
   async getMyProfile(@CurrentSession() session: SessionContext): Promise<ActorProfileResponseDto> {
     return this.actorsService.getMyProfile(session);
   }
 
+  /** Actualiza el perfil Actor del usuario registrado actual */
   @Patch('actors/me')
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
-  @ApiOperation({
-    summary: 'Actualiza el perfil Actor del usuario registrado actual',
-  })
-  @ApiOkResponse({ type: ActorProfileResponseDto })
-  @ApiForbiddenResponse({ type: ProblemDetailsDto })
   async updateMyProfile(
     @CurrentSession() session: SessionContext,
     @Body() dto: UpdateActorProfileDto,
@@ -65,24 +48,18 @@ export class ActorsController {
     return this.actorsService.updateMyProfile(session, dto);
   }
 
+  /** Consulta pública de un perfil Actor por UUID */
   @Get('actors/:id')
-  @ApiOperation({ summary: 'Consulta pública de un perfil Actor por UUID' })
-  @ApiOkResponse({ type: ActorProfileResponseDto })
-  @ApiNotFoundResponse({ type: ProblemDetailsDto })
   async getActorById(
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<ActorProfileResponseDto> {
     return this.actorsService.getActorById(id);
   }
 
+  /** Envía solicitud de conexión entre perfiles Actor (exclusivo usuarios registrados) */
   @Post('connections')
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
-  @ApiOperation({
-    summary: 'Envía solicitud de conexión entre perfiles Actor (exclusivo usuarios registrados)',
-  })
-  @ApiCreatedResponse({ type: ActorConnectionResponseDto })
-  @ApiForbiddenResponse({ type: ProblemDetailsDto })
   async createConnection(
     @CurrentSession() session: SessionContext,
     @Body() dto: CreateConnectionDto,
@@ -90,14 +67,10 @@ export class ActorsController {
     return this.actorsService.createConnection(session, dto);
   }
 
+  /** Acepta (ACCEPTED) o bloquea (BLOCKED) una conexión entre perfiles Actor */
   @Patch('connections/:id')
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
-  @ApiOperation({
-    summary: 'Acepta (ACCEPTED) o bloquea (BLOCKED) una conexión entre perfiles Actor',
-  })
-  @ApiOkResponse({ type: ActorConnectionResponseDto })
-  @ApiForbiddenResponse({ type: ProblemDetailsDto })
   async updateConnectionStatus(
     @CurrentSession() session: SessionContext,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -106,14 +79,10 @@ export class ActorsController {
     return this.actorsService.updateConnectionStatus(session, id, dto);
   }
 
+  /** Lista paginada de conexiones del perfil Actor actual */
   @Get('connections')
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
-  @ApiOperation({
-    summary: 'Lista paginada de conexiones del perfil Actor actual',
-  })
-  @ApiOkResponse({ type: ActorConnectionsPageDto })
-  @ApiForbiddenResponse({ type: ProblemDetailsDto })
   async listMyConnections(
     @CurrentSession() session: SessionContext,
     @Query() query: PaginationQueryDto,
