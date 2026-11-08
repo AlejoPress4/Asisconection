@@ -1,3 +1,4 @@
+import { PaginationQueryDto } from '../../src/common/dto/pagination-query.dto';
 import { ModerationStatus } from '../../src/common/enums/moderation-status.enum';
 import { redactSensitiveFields } from '../../src/common/utils/redact.util';
 import { preserveRawConsentValue } from '../../src/common/utils/strict-boolean.util';
@@ -9,6 +10,7 @@ import { ExternalLinkContentRule } from '../../src/modules/moderation/rules/exte
 import { MinorDataContentRule } from '../../src/modules/moderation/rules/minor-data.rule';
 import { ProfanityContentRule } from '../../src/modules/moderation/rules/profanity.rule';
 import { SpamContentRule } from '../../src/modules/moderation/rules/spam.rule';
+import { PostsService, buildAuthorBadge } from '../../src/modules/social/services/posts.service';
 
 describe('Unit — Seguridad Constitucional, Filtro Automático (OCP) y Asistente FAQ', () => {
   it('redacta campos sensibles (clave, password, authorization, device_token) recursivamente', () => {
@@ -95,5 +97,133 @@ describe('Unit — Seguridad Constitucional, Filtro Automático (OCP) y Asistent
       filter.evaluate('El menor Juan Perez tiene TI 1029384756 y teléfono 3001234567').triggeredRule,
     ).toBe('MINOR_SENSITIVE_DATA');
     expect(filter.evaluate('aaaaaaaaaaaaaaa texto repetido').triggeredRule).toBe('SPAM');
+  });
+
+  it('buildAuthorBadge incluye actor_id y avatar_url cuando están presentes', () => {
+    expect(
+      buildAuthorBadge({
+        userAccountId: 'u-1',
+        actorId: 'actor-1',
+        avatarUrl: 'https://cdn.asisco.org/avatar.jpg',
+        username: 'lucia.acudiente',
+        rol: 'ACUDIENTE',
+        nickname: null,
+        roleTag: null,
+      }),
+    ).toEqual({
+      actor_id: 'actor-1',
+      display_name: 'lucia.acudiente',
+      role_label: 'ACUDIENTE',
+      avatar_url: 'https://cdn.asisco.org/avatar.jpg',
+      is_registered: true,
+    });
+  });
+
+  it('PostsService lista comentarios aprobados con likes_count y notificaciones recientes de los últimos 30 días', async () => {
+    const now = new Date();
+    const service = new PostsService(
+      {
+        findPaginated: () => Promise.resolve({ items: [], total: 0 }),
+        existsById: () => Promise.resolve(true),
+      },
+      {
+        findApprovedPaginated: () =>
+          Promise.resolve({
+            items: [
+              {
+                id: 'post-1',
+                categoryId: 'cat-1',
+                content: 'Mi publicación',
+                imageUrl: null,
+                createdAt: now,
+                userAccountId: 'u-owner',
+                username: 'lucia.acudiente',
+                rol: 'ACUDIENTE',
+                nickname: null,
+                roleTag: null,
+              },
+            ],
+            total: 1,
+          }),
+        countReactionsByPostIds: () => Promise.resolve(new Map()),
+        countApprovedCommentsByPostIds: () => Promise.resolve(new Map()),
+        findRecentApprovedComments: () =>
+          Promise.resolve(
+            new Map([
+              [
+                'post-1',
+                [
+                  {
+                    id: 'comment-1',
+                    postId: 'post-1',
+                    parentId: null,
+                    content: '¡Excelente iniciativa!',
+                    createdAt: now,
+                    userAccountId: 'u-other',
+                    actorId: 'actor-other',
+                    username: 'Carlos Voluntario',
+                    rol: 'VOLUNTARIO',
+                    nickname: null,
+                    roleTag: null,
+                    likesCount: 3,
+                  },
+                ],
+              ],
+            ]),
+          ),
+        create: () => Promise.reject(new Error('not used')),
+        findStatusById: () => Promise.resolve(ModerationStatus.APPROVED),
+      },
+      {
+        create: () => Promise.reject(new Error('not used')),
+        findApprovedByPostId: () =>
+          Promise.resolve({
+            items: [
+              {
+                id: 'comment-1',
+                postId: 'post-1',
+                parentId: null,
+                content: '¡Excelente iniciativa!',
+                createdAt: now,
+                userAccountId: 'u-other',
+                actorId: 'actor-other',
+                username: 'Carlos Voluntario',
+                rol: 'VOLUNTARIO',
+                nickname: null,
+                roleTag: null,
+                likesCount: 3,
+              },
+            ],
+            total: 1,
+          }),
+      },
+      { toggle: () => Promise.resolve(true) },
+    );
+
+    const query = Object.assign(new PaginationQueryDto(), { page: 1, limit: 20 });
+    const commentsPage = await service.listApprovedComments('post-1', query);
+    expect(commentsPage.data).toHaveLength(1);
+    expect(commentsPage.data[0]?.likes_count).toBe(3);
+    expect(commentsPage.data[0]?.author.actor_id).toBe('actor-other');
+
+    const session = {
+      sessionId: 'sess-1',
+      userAccountId: 'u-owner',
+      username: 'lucia.acudiente',
+      rol: 'ACUDIENTE',
+      externalRoles: ['ACUDIENTE'],
+      localRole: null,
+      nickname: null,
+      roleTag: null,
+      consentAcceptedAt: now,
+      isAccountActive: true,
+    };
+    const notificationsPage = await service.listNotifications(session, query);
+    expect(notificationsPage.data).toHaveLength(1);
+    expect(notificationsPage.data[0]?.type).toBe('COMMENT_ON_POST');
+    expect(notificationsPage.data[0]?.body).toContain('Carlos Voluntario');
+
+    const readResult = service.markNotificationsRead(session);
+    expect(readResult.marked_read).toBe(true);
   });
 });

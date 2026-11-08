@@ -10,15 +10,21 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { SessionContext } from '../../../common/auth/interfaces/session-context.interface';
+import type { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 import { buildPaginationMeta } from '../../../common/dto/pagination.util';
 import { ModerationStatus } from '../../../common/enums/moderation-status.enum';
 import { ReactionType } from '../../../common/enums/reaction-type.enum';
 import type { EnvironmentVariables } from '../../../config/env.validation';
 import { ContentFilterService } from '../../moderation/content-filter.service';
 import type { AuthorBadgeDto } from '../dto/author-badge.dto';
+import type { CommentsPageDto } from '../dto/comments-page.dto';
 import type { CreateCommentDto } from '../dto/create-comment.dto';
 import type { CreatePostDto } from '../dto/create-post.dto';
 import type { ListPostsQueryDto } from '../dto/list-posts-query.dto';
+import type {
+  NotificationsPageDto,
+  NotificationsReadResponseDto,
+} from '../dto/notifications-page.dto';
 import type { PendingSubmissionResponseDto } from '../dto/pending-submission-response.dto';
 import type { PostsPageDto } from '../dto/posts-page.dto';
 import type { PublicPostItemDto } from '../dto/public-post-item.dto';
@@ -49,6 +55,8 @@ export const AUTO_REJECTED_MODERATION_MESSAGE =
 
 export interface AuthorSourceFields {
   readonly userAccountId: string | null;
+  readonly actorId?: string | null;
+  readonly avatarUrl?: string | null;
   readonly username: string | null;
   readonly rol: string | null;
   readonly nickname: string | null;
@@ -57,8 +65,10 @@ export interface AuthorSourceFields {
 
 export function buildAuthorBadge(source: AuthorSourceFields): AuthorBadgeDto {
   return {
+    ...(source.actorId !== undefined ? { actor_id: source.actorId } : {}),
     display_name: source.username ?? source.nickname ?? 'Participante',
     role_label: source.rol ?? source.roleTag ?? 'VISITANTE',
+    ...(source.avatarUrl !== undefined ? { avatar_url: source.avatarUrl } : {}),
     is_registered: source.userAccountId !== null,
   };
 }
@@ -80,11 +90,12 @@ export class PostsService {
     private readonly configService?: ConfigService<EnvironmentVariables, true>,
   ) {}
 
-  async listApproved(query: ListPostsQueryDto): Promise<PostsPageDto> {
+  async listApproved(query: ListPostsQueryDto, userAccountId?: string): Promise<PostsPageDto> {
     const { items, total } = await this.postRepository.findApprovedPaginated(
       query.categoryId,
       query.skip,
       query.limit,
+      userAccountId,
     );
 
     const postIds = items.map((post) => post.id);
@@ -130,6 +141,53 @@ export class PostsService {
 
     return {
       data,
+      meta: buildPaginationMeta(query.page, query.limit, total),
+    };
+  }
+
+  async listMyApprovedPosts(
+    session: SessionContext,
+    query: PaginationQueryDto,
+  ): Promise<PostsPageDto> {
+    if (!session.userAccountId) {
+      throw new ForbiddenException(
+        'Las publicaciones propias están disponibles únicamente para usuarios registrados.',
+      );
+    }
+    return this.listApproved(query, session.userAccountId);
+  }
+
+  async listApprovedComments(
+    postId: string,
+    query: PaginationQueryDto,
+  ): Promise<CommentsPageDto> {
+    const postStatus = await this.postRepository.findStatusById(postId);
+    if (postStatus !== ModerationStatus.APPROVED) {
+      throw new NotFoundException('La publicación solicitada no existe o no se encuentra aprobada.');
+    }
+
+    if (!this.commentRepository.findApprovedByPostId) {
+      return {
+        data: [],
+        meta: buildPaginationMeta(query.page, query.limit, 0),
+      };
+    }
+
+    const { items, total } = await this.commentRepository.findApprovedByPostId(
+      postId,
+      query.skip,
+      query.limit,
+    );
+
+    return {
+      data: items.map((comment) => ({
+        id: comment.id,
+        parent_id: comment.parentId ?? null,
+        content: comment.content,
+        author: buildAuthorBadge(comment),
+        likes_count: comment.likesCount ?? 0,
+        created_at: comment.createdAt.toISOString(),
+      })),
       meta: buildPaginationMeta(query.page, query.limit, total),
     };
   }
@@ -325,6 +383,73 @@ export class PostsService {
       comment_id: commentId,
       type: dto.type,
       active,
+    };
+  }
+
+  async listNotifications(
+    session: SessionContext,
+    query: PaginationQueryDto,
+  ): Promise<NotificationsPageDto> {
+    if (!session.userAccountId) {
+      return {
+        data: [],
+        meta: buildPaginationMeta(query.page, query.limit, 0),
+      };
+    }
+
+    const { items: myPosts } = await this.postRepository.findApprovedPaginated(
+      undefined,
+      0,
+      20,
+      session.userAccountId,
+    );
+    if (myPosts.length === 0) {
+      return {
+        data: [],
+        meta: buildPaginationMeta(query.page, query.limit, 0),
+      };
+    }
+
+    const recentCommentsMap = await this.postRepository.findRecentApprovedComments(
+      myPosts.map((post) => post.id),
+      5,
+    );
+    const thirtyDaysAgoMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const notifications = myPosts
+      .flatMap((post) => {
+        const comments = recentCommentsMap.get(post.id) ?? [];
+        return comments
+          .filter(
+            (comment) =>
+              comment.userAccountId !== session.userAccountId &&
+              comment.createdAt.getTime() >= thirtyDaysAgoMs,
+          )
+          .map((comment) => {
+            const actor = buildAuthorBadge(comment);
+            return {
+              id: comment.id,
+              type: 'COMMENT_ON_POST' as const,
+              title: 'Nuevo comentario en tu publicación',
+              body: `${actor.display_name} comentó en tu publicación.`,
+              is_read: false,
+              created_at: comment.createdAt.toISOString(),
+            };
+          });
+      })
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+    const paged = notifications.slice(query.skip, query.skip + query.limit);
+
+    return {
+      data: paged,
+      meta: buildPaginationMeta(query.page, query.limit, notifications.length),
+    };
+  }
+
+  markNotificationsRead(_session: SessionContext): NotificationsReadResponseDto {
+    return {
+      marked_read: true,
+      updated_at: new Date().toISOString(),
     };
   }
 }

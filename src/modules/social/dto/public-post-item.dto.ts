@@ -14,6 +14,9 @@ export class ApprovedCommentItemDto {
   @ApiProperty({ type: () => AuthorBadgeDto })
   author!: AuthorBadgeDto;
 
+  @ApiPropertyOptional({ example: 0 })
+  likes_count?: number;
+
   @ApiProperty({ format: 'date-time' })
   created_at!: string;
 }

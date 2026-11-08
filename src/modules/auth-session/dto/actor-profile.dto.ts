@@ -13,6 +13,9 @@ export class ActorProfileResponseDto {
   @ApiProperty({ example: 'maria.acudiente' })
   username!: string;
 
+  @ApiPropertyOptional({ nullable: true, format: 'email', example: 'maria@correo.com' })
+  email?: string | null;
+
   @ApiProperty({ example: 'ACUDIENTE' })
   primary_role!: string;
 
@@ -27,6 +30,15 @@ export class ActorProfileResponseDto {
 
   @ApiProperty({ nullable: true, example: 'Acudiente participante en programas comunitarios.' })
   short_bio!: string | null;
+
+  @ApiPropertyOptional({ example: 0 })
+  posts_count?: number;
+
+  @ApiPropertyOptional({ example: 0 })
+  followers_count?: number;
+
+  @ApiPropertyOptional({ example: 0 })
+  following_count?: number;
 
   @ApiProperty({ format: 'date-time' })
   created_at!: string;

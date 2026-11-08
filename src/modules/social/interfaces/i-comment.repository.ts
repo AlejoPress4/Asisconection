@@ -1,5 +1,6 @@
 import type { ModerationStatus } from '../../../common/enums/moderation-status.enum';
 import type { Comment } from '../entities/comment.entity';
+import type { ApprovedCommentProjection } from './i-post.repository';
 
 export interface CreateCommentData {
   readonly postId: string;
@@ -14,6 +15,11 @@ export interface CreateCommentData {
 export interface ICommentRepository {
   create(data: CreateCommentData): Promise<Comment>;
   findById?(id: string): Promise<Comment | null>;
+  findApprovedByPostId?(
+    postId: string,
+    skip: number,
+    take: number,
+  ): Promise<{ items: ApprovedCommentProjection[]; total: number }>;
   countCommentsByDeviceSince?(deviceId: string, since: Date): Promise<number>;
 }
 

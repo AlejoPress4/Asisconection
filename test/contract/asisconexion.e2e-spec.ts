@@ -499,6 +499,30 @@ class InMemoryPersistenceStore
     return Promise.resolve(comment as Post & Comment);
   }
 
+  findApprovedByPostId(postId: string, skip: number, take: number) {
+    const approved = Array.from(this.comments.values()).filter(
+      (c) => c.postId === postId && c.status === ModerationStatus.APPROVED,
+    );
+    const items = approved.slice(skip, skip + take).map((c) => {
+      const session = this.sessions.get(c.deviceId);
+      const user = c.userAccountId ? this.users.get(c.userAccountId) : undefined;
+      return {
+        id: c.id,
+        postId: c.postId,
+        parentId: c.parentId,
+        content: c.content,
+        createdAt: c.createdAt,
+        userAccountId: c.userAccountId,
+        username: user?.username ?? null,
+        rol: user?.rol ?? null,
+        nickname: session?.nickname ?? null,
+        roleTag: session?.roleTag ?? null,
+        likesCount: 0,
+      };
+    });
+    return Promise.resolve({ items, total: approved.length });
+  }
+
   findStatusById(id: string): Promise<ModerationStatus | null> {
     return Promise.resolve(this.posts.get(id)?.status ?? null);
   }

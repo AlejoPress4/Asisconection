@@ -12,11 +12,18 @@ export interface UpdateActorFields {
   readonly shortBio?: string;
 }
 
+export interface ActorStats {
+  readonly postsCount: number;
+  readonly followersCount: number;
+  readonly followingCount: number;
+}
+
 export interface IActorRepository {
   findByUserAccountId(userAccountId: string): Promise<Actor | null>;
   findById(actorId: string): Promise<Actor | null>;
   ensureForUserAccount(userAccountId: string, defaultRole: string): Promise<Actor>;
   updateByUserAccountId(userAccountId: string, defaultRole: string, fields: UpdateActorFields): Promise<Actor>;
+  getStatsForActor?(actorId: string, userAccountId: string): Promise<ActorStats>;
   createConnection(requesterActorId: string, receiverActorId: string): Promise<ActorConnection>;
   findConnectionById(connectionId: string): Promise<ActorConnection | null>;
   updateConnectionStatus(

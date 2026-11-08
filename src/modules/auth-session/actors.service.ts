@@ -33,7 +33,13 @@ export class ActorsService {
       userAccountId,
       session.rol ?? 'ACUDIENTE',
     );
-    return this.mapActorDto(actor, session.username ?? 'usuario');
+    const stats = this.actorRepository.getStatsForActor
+      ? await this.actorRepository.getStatsForActor(actor.id, userAccountId)
+      : undefined;
+    return this.mapActorDto(actor, session.username ?? 'usuario', {
+      includeEmail: true,
+      stats,
+    });
   }
 
   async updateMyProfile(
@@ -52,7 +58,13 @@ export class ActorsService {
         shortBio: dto.short_bio,
       },
     );
-    return this.mapActorDto(updated, session.username ?? 'usuario');
+    const stats = this.actorRepository.getStatsForActor
+      ? await this.actorRepository.getStatsForActor(updated.id, userAccountId)
+      : undefined;
+    return this.mapActorDto(updated, session.username ?? 'usuario', {
+      includeEmail: true,
+      stats,
+    });
   }
 
   async getActorById(actorId: string): Promise<ActorProfileResponseDto> {
@@ -60,7 +72,13 @@ export class ActorsService {
     if (!actor) {
       throw new NotFoundException('El perfil Actor solicitado no existe.');
     }
-    return this.mapActorDto(actor, actor.userAccount?.username ?? 'usuario');
+    const stats = this.actorRepository.getStatsForActor
+      ? await this.actorRepository.getStatsForActor(actor.id, actor.userAccountId)
+      : undefined;
+    return this.mapActorDto(actor, actor.userAccount?.username ?? 'usuario', {
+      includeEmail: false,
+      stats,
+    });
   }
 
   async createConnection(
@@ -154,16 +172,31 @@ export class ActorsService {
     return session.userAccountId;
   }
 
-  private mapActorDto(actor: Actor, fallbackUsername: string): ActorProfileResponseDto {
+  private mapActorDto(
+    actor: Actor,
+    fallbackUsername: string,
+    options?: {
+      includeEmail?: boolean;
+      stats?: { postsCount: number; followersCount: number; followingCount: number };
+    },
+  ): ActorProfileResponseDto {
     return {
       id: actor.id,
       user_account_id: actor.userAccountId,
       username: actor.userAccount?.username ?? fallbackUsername,
+      ...(options?.includeEmail ? { email: actor.userAccount?.email ?? null } : {}),
       primary_role: actor.primaryRole,
       first_names: actor.firstNames,
       last_names: actor.lastNames,
       avatar_url: actor.avatarUrl,
       short_bio: actor.shortBio,
+      ...(options?.stats
+        ? {
+            posts_count: options.stats.postsCount,
+            followers_count: options.stats.followersCount,
+            following_count: options.stats.followingCount,
+          }
+        : {}),
       created_at: actor.createdAt.toISOString(),
       updated_at: actor.updatedAt.toISOString(),
     };

@@ -1,12 +1,21 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import type { Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import type { DataSource, Repository } from 'typeorm';
+import { ModerationStatus } from '../../../common/enums/moderation-status.enum';
 import { Actor } from '../entities/actor.entity';
 import {
   ActorConnection,
   type ActorConnectionStatus,
 } from '../entities/actor-connection.entity';
-import type { IActorRepository, UpdateActorFields } from '../interfaces/i-actor.repository';
+import type {
+  ActorStats,
+  IActorRepository,
+  UpdateActorFields,
+} from '../interfaces/i-actor.repository';
+
+interface RawCountRow {
+  readonly total: number | string;
+}
 
 @Injectable()
 export class ActorRepository implements IActorRepository {
@@ -15,6 +24,8 @@ export class ActorRepository implements IActorRepository {
     private readonly actorRepo: Repository<Actor>,
     @InjectRepository(ActorConnection)
     private readonly connectionRepo: Repository<ActorConnection>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async findByUserAccountId(userAccountId: string): Promise<Actor | null> {
@@ -63,6 +74,40 @@ export class ActorRepository implements IActorRepository {
     });
     await this.actorRepo.save(merged);
     return (await this.findByUserAccountId(userAccountId)) ?? merged;
+  }
+
+  async getStatsForActor(actorId: string, userAccountId: string): Promise<ActorStats> {
+    const [postsRows, followersRows, followingRows] = await Promise.all([
+      this.dataSource.query<RawCountRow[]>(
+        `
+          SELECT COUNT(*)::int AS total
+          FROM posts
+          WHERE user_account_id = $1::uuid
+            AND status = $2::"public"."moderation_status_enum"
+        `,
+        [userAccountId, ModerationStatus.APPROVED],
+      ),
+      this.connectionRepo
+        .createQueryBuilder('ac')
+        .where('ac.receiver_actor_id = :actorId AND ac.status = :status', {
+          actorId,
+          status: 'ACCEPTED',
+        })
+        .getCount(),
+      this.connectionRepo
+        .createQueryBuilder('ac')
+        .where('ac.requester_actor_id = :actorId AND ac.status = :status', {
+          actorId,
+          status: 'ACCEPTED',
+        })
+        .getCount(),
+    ]);
+
+    return {
+      postsCount: Number(postsRows[0]?.total ?? 0),
+      followersCount: followersRows,
+      followingCount: followingRows,
+    };
   }
 
   async createConnection(

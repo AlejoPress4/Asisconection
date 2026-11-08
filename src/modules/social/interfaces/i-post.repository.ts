@@ -10,6 +10,8 @@ export interface ApprovedPostProjection {
   readonly mediaUrls?: ReadonlyArray<string>;
   readonly createdAt: Date;
   readonly userAccountId: string | null;
+  readonly actorId?: string | null;
+  readonly avatarUrl?: string | null;
   readonly username: string | null;
   readonly rol: string | null;
   readonly nickname: string | null;
@@ -23,10 +25,13 @@ export interface ApprovedCommentProjection {
   readonly content: string;
   readonly createdAt: Date;
   readonly userAccountId: string | null;
+  readonly actorId?: string | null;
+  readonly avatarUrl?: string | null;
   readonly username: string | null;
   readonly rol: string | null;
   readonly nickname: string | null;
   readonly roleTag: string | null;
+  readonly likesCount?: number;
 }
 
 export interface ReactionCountsMap {
@@ -51,6 +56,7 @@ export interface IPostRepository {
     categoryId: string | undefined,
     skip: number,
     take: number,
+    userAccountId?: string,
   ): Promise<{ items: ApprovedPostProjection[]; total: number }>;
   countReactionsByPostIds(
     postIds: ReadonlyArray<string>,

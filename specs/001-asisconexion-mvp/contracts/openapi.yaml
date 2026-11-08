@@ -209,7 +209,7 @@ components:
 
     ActorProfileResponseDto:
       type: object
-      required: [id, user_account_id, primary_role, first_names, last_names, avatar_url, short_bio, created_at, updated_at]
+      required: [id, user_account_id, username, primary_role, first_names, last_names, avatar_url, short_bio, created_at, updated_at]
       properties:
         id:
           type: string
@@ -217,6 +217,13 @@ components:
         user_account_id:
           type: string
           format: uuid
+        username:
+          type: string
+          example: maria.acudiente
+        email:
+          type: [string, 'null']
+          format: email
+          description: Expuesto únicamente en /v1/actors/me (titular de la cuenta conforme a Ley 1581).
         primary_role:
           type: string
           example: ACUDIENTE
@@ -231,6 +238,18 @@ components:
           format: uri
         short_bio:
           type: [string, 'null']
+        posts_count:
+          type: integer
+          minimum: 0
+          example: 4
+        followers_count:
+          type: integer
+          minimum: 0
+          example: 12
+        following_count:
+          type: integer
+          minimum: 0
+          example: 8
         created_at:
           type: string
           format: date-time
@@ -352,12 +371,18 @@ components:
       type: object
       required: [display_name, role_label, is_registered]
       properties:
+        actor_id:
+          type: [string, 'null']
+          format: uuid
         display_name:
           type: string
           example: maria.acudiente
         role_label:
           type: string
           example: ACUDIENTE
+        avatar_url:
+          type: [string, 'null']
+          format: uri
         is_registered:
           type: boolean
           example: true
@@ -376,6 +401,9 @@ components:
           type: string
         author:
           $ref: '#/components/schemas/AuthorBadgeDto'
+        likes_count:
+          type: integer
+          example: 0
         created_at:
           type: string
           format: date-time
@@ -651,6 +679,40 @@ components:
           type: string
           example: Serás redirigido de forma nativa al canal humano oficial en WhatsApp.
 
+    NotificationItemDto:
+      type: object
+      required: [id, type, title, body, is_read, created_at]
+      properties:
+        id:
+          type: string
+          example: notif-1
+        type:
+          type: string
+          enum: [COMMENT_ON_POST, REPLY_TO_COMMENT, LIKE_ON_POST, FOUNDATION_ANNOUNCEMENT]
+        title:
+          type: string
+          example: Nuevo comentario en tu publicación
+        body:
+          type: string
+          example: Carlos Voluntario comentó en tu publicación.
+        is_read:
+          type: boolean
+          example: false
+        created_at:
+          type: string
+          format: date-time
+
+    NotificationsReadResponseDto:
+      type: object
+      required: [marked_read, updated_at]
+      properties:
+        marked_read:
+          type: boolean
+          example: true
+        updated_at:
+          type: string
+          format: date-time
+
 paths:
   /v1/auth/registro:
     post:
@@ -785,6 +847,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ActorProfileResponseDto'
+
+  /v1/actors/me/posts:
+    get:
+      tags: [Social]
+      summary: Lista las publicaciones aprobadas (status = APPROVED) creadas por el usuario autenticado
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Página de publicaciones aprobadas propias
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PublicPostItemDto'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMetaDto'
 
   /v1/actors/{id}:
     get:
@@ -976,6 +1063,39 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
 
   /v1/posts/{postId}/comments:
+    get:
+      tags: [Social]
+      summary: Lista paginada de comentarios aprobados (status = APPROVED) de una publicación
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Página de comentarios aprobados de la publicación
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApprovedCommentItemDto'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMetaDto'
+        '404':
+          description: Publicación no encontrada o no aprobada
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
     post:
       tags: [Social]
       summary: Crea comentario forzando status = PENDING sobre publicación aprobada
@@ -1061,6 +1181,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ToggleCommentReactionResponseDto'
+
+  /v1/notifications:
+    get:
+      tags: [Social]
+      summary: Lista notificaciones recientes (últimos 30 días) del usuario autenticado
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Página de notificaciones recientes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationItemDto'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMetaDto'
+
+  /v1/notifications/read-all:
+    patch:
+      tags: [Social]
+      summary: Marca todas las notificaciones del actor autenticado como leídas
+      security:
+        - DeviceSessionBearer: []
+      responses:
+        '200':
+          description: Confirmación de marcado de notificaciones como leídas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationsReadResponseDto'
 
   /v1/admin/moderators:
     get:

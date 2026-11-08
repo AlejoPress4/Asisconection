@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+   Patch,
   Post,
   Query,
   UnauthorizedException,
@@ -25,11 +26,17 @@ import {
 } from '@nestjs/swagger';
 import type { SessionContext } from '../../../common/auth/interfaces/session-context.interface';
 import { CurrentSession } from '../../../common/decorators/current-session.decorator';
+import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 import { ProblemDetailsDto } from '../../../common/filters/all-exceptions.filter';
 import { DeviceSessionGuard } from '../../../common/guards/device-session.guard';
+import { CommentsPageDto } from '../dto/comments-page.dto';
 import { CreateCommentDto } from '../dto/create-comment.dto';
 import { CreatePostDto } from '../dto/create-post.dto';
 import { ListPostsQueryDto } from '../dto/list-posts-query.dto';
+import {
+  NotificationsPageDto,
+  NotificationsReadResponseDto,
+} from '../dto/notifications-page.dto';
 import { PendingSubmissionResponseDto } from '../dto/pending-submission-response.dto';
 import { PostsPageDto } from '../dto/posts-page.dto';
 import {
@@ -67,6 +74,31 @@ export class PostsController {
     return this.postsService.listApproved(query);
   }
 
+  @Get('actors/me/posts')
+  @UseGuards(DeviceSessionGuard)
+  @ApiBearerAuth('DeviceSessionBearer')
+  @ApiOperation({
+    summary: 'Lista paginada de publicaciones aprobadas del usuario autenticado',
+  })
+  @ApiOkResponse({
+    description: 'Página de publicaciones propias aprobadas',
+    type: PostsPageDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'DeviceSession ausente o inválida',
+    type: ProblemDetailsDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Exclusivo para usuarios registrados',
+    type: ProblemDetailsDto,
+  })
+  async listMyPosts(
+    @CurrentSession() session: SessionContext | undefined,
+    @Query() query: PaginationQueryDto,
+  ): Promise<PostsPageDto> {
+    return this.postsService.listMyApprovedPosts(requireSession(session), query);
+  }
+
   @Post('posts')
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
@@ -102,6 +134,29 @@ export class PostsController {
     @Body() dto: CreatePostDto,
   ): Promise<PendingSubmissionResponseDto> {
     return this.postsService.createPost(requireSession(session), dto);
+  }
+
+  @Get('posts/:postId/comments')
+  @ApiOperation({
+    summary: 'Lista paginada de comentarios aprobados (status = APPROVED) de una publicación',
+  })
+  @ApiOkResponse({
+    description: 'Página de comentarios aprobados de la publicación',
+    type: CommentsPageDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Parámetros inválidos',
+    type: ProblemDetailsDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Publicación no encontrada o no aprobada',
+    type: ProblemDetailsDto,
+  })
+  async listApprovedComments(
+    @Param('postId', new ParseUUIDPipe()) postId: string,
+    @Query() query: PaginationQueryDto,
+  ): Promise<CommentsPageDto> {
+    return this.postsService.listApprovedComments(postId, query);
   }
 
   @Post('posts/:postId/comments')
@@ -186,5 +241,36 @@ export class PostsController {
     @Body() dto: ToggleReactionDto,
   ): Promise<ToggleCommentReactionResponseDto> {
     return this.postsService.toggleCommentReaction(requireSession(session), commentId, dto);
+  }
+
+  @Get('notifications')
+  @ApiBearerAuth('DeviceSessionBearer')
+  @ApiOperation({
+    summary: 'Lista notificaciones recientes de actividad comunitaria del actor autenticado',
+  })
+  @ApiOkResponse({
+    description: 'Página de notificaciones recientes (últimos 30 días)',
+    type: NotificationsPageDto,
+  })
+  async listNotifications(
+    @CurrentSession() session: SessionContext | undefined,
+    @Query() query: PaginationQueryDto,
+  ): Promise<NotificationsPageDto> {
+    return this.postsService.listNotifications(requireSession(session), query);
+  }
+
+  @Patch('notifications/read-all')
+  @ApiBearerAuth('DeviceSessionBearer')
+  @ApiOperation({
+    summary: 'Marca todas las notificaciones del actor como leídas',
+  })
+  @ApiOkResponse({
+    description: 'Confirmación de marcado de notificaciones como leídas',
+    type: NotificationsReadResponseDto,
+  })
+  markNotificationsRead(
+    @CurrentSession() session: SessionContext | undefined,
+  ): NotificationsReadResponseDto {
+    return this.postsService.markNotificationsRead(requireSession(session));
   }
 }

@@ -30,10 +30,18 @@ interface RawRecentCommentRow {
   readonly content: string;
   readonly created_at: Date | string;
   readonly user_account_id: string | null;
+  readonly actor_id: string | null;
+  readonly avatar_url: string | null;
   readonly username: string | null;
   readonly rol: string | null;
   readonly nickname: string | null;
   readonly role_tag: string | null;
+}
+
+interface RawActorLookupRow {
+  readonly user_account_id: string;
+  readonly id: string;
+  readonly avatar_url: string | null;
 }
 
 interface RawPostMediaRow {
@@ -68,6 +76,7 @@ export class PostRepository implements IPostRepository {
     categoryId: string | undefined,
     skip: number,
     take: number,
+    userAccountId?: string,
   ): Promise<{ items: ApprovedPostProjection[]; total: number }> {
     const qb = this.repository
       .createQueryBuilder('p')
@@ -93,6 +102,10 @@ export class PostRepository implements IPostRepository {
       qb.andWhere('p.categoryId = :categoryId', { categoryId });
     }
 
+    if (userAccountId) {
+      qb.andWhere('p.userAccountId = :userAccountId', { userAccountId });
+    }
+
     const [entities, total] = await qb
       .orderBy('p.createdAt', 'DESC')
       .skip(skip)
@@ -101,6 +114,29 @@ export class PostRepository implements IPostRepository {
 
     const postIds = entities.map((p) => p.id);
     const mediaMap = new Map<string, string[]>();
+    const actorMap = new Map<string, { id: string; avatarUrl: string | null }>();
+
+    const userAccountIds = Array.from(
+      new Set(
+        entities
+          .map((p) => p.userAccountId)
+          .filter((id): id is string => typeof id === 'string'),
+      ),
+    );
+
+    if (userAccountIds.length > 0) {
+      const actorRows = await this.dataSource.query<RawActorLookupRow[]>(
+        `
+          SELECT user_account_id, id, avatar_url
+          FROM actors
+          WHERE user_account_id = ANY($1::uuid[])
+        `,
+        [userAccountIds],
+      );
+      for (const row of actorRows) {
+        actorMap.set(row.user_account_id, { id: row.id, avatarUrl: row.avatar_url });
+      }
+    }
 
     if (postIds.length > 0) {
       const mediaRows = await this.dataSource.query<RawPostMediaRow[]>(
@@ -121,6 +157,7 @@ export class PostRepository implements IPostRepository {
 
     const items: ApprovedPostProjection[] = entities.map((post) => {
       const mediaList = mediaMap.get(post.id) ?? (post.imageUrl ? [post.imageUrl] : []);
+      const actor = post.userAccountId ? actorMap.get(post.userAccountId) : undefined;
       return {
         id: post.id,
         categoryId: post.categoryId,
@@ -129,6 +166,8 @@ export class PostRepository implements IPostRepository {
         mediaUrls: mediaList,
         createdAt: post.createdAt,
         userAccountId: post.userAccountId,
+        actorId: actor?.id ?? null,
+        avatarUrl: actor?.avatarUrl ?? null,
         username: post.userAccount?.username ?? null,
         rol: post.userAccount?.rol ?? null,
         nickname: post.device?.nickname ?? null,
@@ -215,6 +254,8 @@ export class PostRepository implements IPostRepository {
           ranked.content,
           ranked.created_at,
           ranked.user_account_id,
+          ranked.actor_id,
+          ranked.avatar_url,
           ranked.username,
           ranked.rol,
           ranked.nickname,
@@ -227,6 +268,8 @@ export class PostRepository implements IPostRepository {
             c.content,
             c.created_at,
             c.user_account_id,
+            a.id AS actor_id,
+            a.avatar_url,
             ua.username,
             ua.rol,
             ds.nickname,
@@ -235,6 +278,7 @@ export class PostRepository implements IPostRepository {
           FROM comments c
           LEFT JOIN device_sessions ds ON ds.id = c.device_id
           LEFT JOIN user_accounts ua ON ua.id = c.user_account_id
+          LEFT JOIN actors a ON a.user_account_id = c.user_account_id
           WHERE c.status = $2::"public"."moderation_status_enum" AND c.post_id = ANY($1::uuid[])
         ) AS ranked
         WHERE ranked.rn <= $3
@@ -252,6 +296,8 @@ export class PostRepository implements IPostRepository {
         content: row.content,
         createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
         userAccountId: row.user_account_id,
+        actorId: row.actor_id,
+        avatarUrl: row.avatar_url,
         username: row.username,
         rol: row.rol,
         nickname: row.nickname,
