@@ -38,6 +38,24 @@ export class Actor {
   @Column({ name: 'short_bio', type: 'varchar', length: 500, nullable: true })
   shortBio!: string | null;
 
+  @Column({ name: 'birth_date', type: 'varchar', length: 20, nullable: true })
+  birthDate?: string | null;
+
+  @Column({ name: 'city', type: 'varchar', length: 80, nullable: true })
+  city?: string | null;
+
+  @Column({ name: 'show_email', type: 'boolean', default: false })
+  showEmail?: boolean;
+
+  @Column({ name: 'show_birth_date', type: 'boolean', default: false })
+  showBirthDate?: boolean;
+
+  @Column({ name: 'show_city', type: 'boolean', default: false })
+  showCity?: boolean;
+
+  @Column({ name: 'require_follow_approval', type: 'boolean', default: false })
+  requireFollowApproval?: boolean;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

@@ -12,6 +12,10 @@ import type {
   AuthSessionResponseDto,
 } from './dto/auth-session-response.dto';
 import type { InitAnonymousSessionDto } from './dto/init-anonymous.dto';
+import {
+  type CurrentSessionResponseDto,
+  toCurrentSessionDto,
+} from './dto/current-session-response.dto';
 import type { RegisterUserDto } from './dto/register-user.dto';
 import type { SyncSessionDto } from './dto/sync-session.dto';
 import {
@@ -179,5 +183,9 @@ export class AuthSessionService {
       device_token: session.deviceToken,
       session_id: session.id,
     };
+  }
+
+  getCurrentSession(session: SessionContext): CurrentSessionResponseDto {
+    return toCurrentSessionDto(session);
   }
 }

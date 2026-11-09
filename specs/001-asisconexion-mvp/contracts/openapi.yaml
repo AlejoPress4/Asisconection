@@ -238,6 +238,28 @@ components:
           format: uri
         short_bio:
           type: [string, 'null']
+        birth_date:
+          type: [string, 'null']
+          example: '1990-05-14'
+        city:
+          type: [string, 'null']
+          example: Manizales
+        show_email:
+          type: boolean
+          default: false
+          description: Interruptor Ley 1581 para mostrar u ocultar correo en el perfil público.
+        show_birth_date:
+          type: boolean
+          default: false
+          description: Interruptor Ley 1581 para mostrar u ocultar fecha de nacimiento en el perfil público.
+        show_city:
+          type: boolean
+          default: false
+          description: Interruptor Ley 1581 para mostrar u ocultar ciudad en el perfil público.
+        require_follow_approval:
+          type: boolean
+          default: false
+          description: Si requiere aprobación manual para solicitudes de seguimiento.
         posts_count:
           type: integer
           minimum: 0
@@ -277,6 +299,22 @@ components:
         short_bio:
           type: string
           maxLength: 300
+        birth_date:
+          type: string
+          format: date
+          pattern: '^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$'
+          example: '1990-05-14'
+        city:
+          type: string
+          maxLength: 80
+        show_email:
+          type: boolean
+        show_birth_date:
+          type: boolean
+        show_city:
+          type: boolean
+        require_follow_approval:
+          type: boolean
 
     CreateActorConnectionDto:
       type: object
@@ -346,6 +384,40 @@ components:
         session_id:
           type: string
           format: uuid
+
+    CurrentSessionResponseDto:
+      type: object
+      description: DTO segregado (ISP) — jamás incluye device_token ni clave.
+      required: [session_id, is_anonymous, user_account_id, display_name, rol, external_roles, local_role, has_consent]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        is_anonymous:
+          type: boolean
+          example: false
+        user_account_id:
+          type: [string, 'null']
+          format: uuid
+        display_name:
+          type: string
+          description: Username de la cuenta registrada o nickname de la sesión anónima.
+          example: maria.acudiente
+        rol:
+          type: string
+          example: ACUDIENTE
+        external_roles:
+          type: array
+          items:
+            type: string
+          example: [ACUDIENTE]
+        local_role:
+          type: [string, 'null']
+          enum: [MODERATOR, null]
+          example: null
+        has_consent:
+          type: boolean
+          example: true
 
     CategoryItemDto:
       type: object
@@ -918,7 +990,7 @@ paths:
                     $ref: '#/components/schemas/PaginationMetaDto'
     post:
       tags: [AuthSession]
-      summary: Envía una solicitud de conexión entre actores registrados (status = PENDING)
+      summary: Envía una solicitud de conexión entre actores registrados (ACCEPTED o PENDING según require_follow_approval del receptor)
       security:
         - DeviceSessionBearer: []
       requestBody:
@@ -929,7 +1001,7 @@ paths:
               $ref: '#/components/schemas/CreateActorConnectionDto'
       responses:
         '201':
-          description: Solicitud de conexión creada en estado PENDING
+          description: Conexión creada; ACCEPTED si el receptor no exige aprobación manual, PENDING si require_follow_approval = true
           content:
             application/json:
               schema:
@@ -981,6 +1053,26 @@ paths:
                 $ref: '#/components/schemas/AnonymousSessionResponseDto'
         '400':
           description: Consentimiento Ley 1581 no aceptado o payload inválido
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+  /v1/sessions/me:
+    get:
+      tags: [AuthSession]
+      summary: Describe la DeviceSession actual (registrada o anónima) para restaurar la sesión en el cliente
+      security:
+        - DeviceSessionBearer: []
+      responses:
+        '200':
+          description: Sesión vigente con roles externos y rol local MODERATOR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentSessionResponseDto'
+        '401':
+          description: DeviceSession ausente, inválida o expirada
           content:
             application/problem+json:
               schema:

@@ -1,7 +1,8 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBadGatewayResponse,
   ApiBadRequestResponse,
+  ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiOkResponse,
@@ -12,12 +13,14 @@ import {
 import type { SessionContext } from '../../common/auth/interfaces/session-context.interface';
 import { CurrentSession } from '../../common/decorators/current-session.decorator';
 import { ProblemDetailsDto } from '../../common/filters/all-exceptions.filter';
+import { DeviceSessionGuard } from '../../common/guards/device-session.guard';
 import { OptionalDeviceSessionGuard } from '../../common/guards/optional-device-session.guard';
 import { AuthSessionService } from './auth-session.service';
 import {
   AnonymousSessionResponseDto,
   AuthSessionResponseDto,
 } from './dto/auth-session-response.dto';
+import { CurrentSessionResponseDto } from './dto/current-session-response.dto';
 import { InitAnonymousSessionDto } from './dto/init-anonymous.dto';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { SyncSessionDto } from './dto/sync-session.dto';
@@ -129,5 +132,21 @@ export class AuthSessionController {
     @Body() dto: InitAnonymousSessionDto,
   ): Promise<AnonymousSessionResponseDto> {
     return this.authSessionService.initAnonymous(dto);
+  }
+
+  @Get('sessions/me')
+  @UseGuards(DeviceSessionGuard)
+  @ApiBearerAuth('DeviceSessionBearer')
+  @ApiOperation({
+    summary:
+      'Describe la DeviceSession actual (registrada o anónima) con roles externos y rol local MODERATOR',
+  })
+  @ApiOkResponse({ type: CurrentSessionResponseDto })
+  @ApiUnauthorizedResponse({
+    description: 'DeviceSession ausente, inválida o expirada',
+    type: ProblemDetailsDto,
+  })
+  getCurrentSession(@CurrentSession() session: SessionContext): CurrentSessionResponseDto {
+    return this.authSessionService.getCurrentSession(session);
   }
 }

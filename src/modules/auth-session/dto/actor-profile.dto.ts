@@ -1,5 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString, IsUrl, IsUUID, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUrl,
+  IsUUID,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 import type { ActorConnectionStatus } from '../entities/actor-connection.entity';
 
@@ -19,6 +28,9 @@ export class ActorProfileResponseDto {
   @ApiProperty({ example: 'ACUDIENTE' })
   primary_role!: string;
 
+  @ApiPropertyOptional({ type: String, nullable: true, enum: ['MODERATOR'], example: null })
+  local_role?: string | null;
+
   @ApiProperty({ nullable: true, example: 'María' })
   first_names!: string | null;
 
@@ -30,6 +42,24 @@ export class ActorProfileResponseDto {
 
   @ApiProperty({ nullable: true, example: 'Acudiente participante en programas comunitarios.' })
   short_bio!: string | null;
+
+  @ApiPropertyOptional({ nullable: true, example: '1988-05-14' })
+  birth_date?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, example: 'Manizales' })
+  city?: string | null;
+
+  @ApiPropertyOptional({ example: false })
+  show_email?: boolean;
+
+  @ApiPropertyOptional({ example: false })
+  show_birth_date?: boolean;
+
+  @ApiPropertyOptional({ example: false })
+  show_city?: boolean;
+
+  @ApiPropertyOptional({ example: false })
+  require_follow_approval?: boolean;
 
   @ApiPropertyOptional({ example: 0 })
   posts_count?: number;
@@ -77,6 +107,39 @@ export class UpdateActorProfileDto {
   @IsString()
   @MaxLength(500)
   short_bio?: string;
+
+  @ApiPropertyOptional({ maxLength: 10, format: 'date', example: '1988-05-14' })
+  @IsOptional()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, {
+    message: 'birth_date debe tener formato YYYY-MM-DD.',
+  })
+  birth_date?: string;
+
+  @ApiPropertyOptional({ maxLength: 80, example: 'Manizales' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  city?: string;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  show_email?: boolean;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  show_birth_date?: boolean;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  show_city?: boolean;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  require_follow_approval?: boolean;
 }
 
 export class CreateConnectionDto {

@@ -17,7 +17,7 @@ import type {
   UpdateConnectionStatusDto,
 } from './dto/actor-profile.dto';
 import type { Actor } from './entities/actor.entity';
-import type { ActorConnection } from './entities/actor-connection.entity';
+import type { ActorConnection, ActorConnectionStatus } from './entities/actor-connection.entity';
 import { ACTOR_REPOSITORY, type IActorRepository } from './interfaces/i-actor.repository';
 
 @Injectable()
@@ -56,6 +56,12 @@ export class ActorsService {
         lastNames: dto.last_names,
         avatarUrl: dto.avatar_url,
         shortBio: dto.short_bio,
+        birthDate: dto.birth_date,
+        city: dto.city,
+        showEmail: dto.show_email,
+        showBirthDate: dto.show_birth_date,
+        showCity: dto.show_city,
+        requireFollowApproval: dto.require_follow_approval,
       },
     );
     const stats = this.actorRepository.getStatsForActor
@@ -100,9 +106,14 @@ export class ActorsService {
       throw new NotFoundException('El perfil Actor destinatario no existe.');
     }
 
+    // The receiver decides: manual approval keeps the request PENDING, otherwise it is accepted.
+    const initialStatus: ActorConnectionStatus = receiver.requireFollowApproval
+      ? 'PENDING'
+      : 'ACCEPTED';
     const connection = await this.actorRepository.createConnection(
       myActor.id,
       dto.receiver_actor_id,
+      initialStatus,
     );
     return this.mapConnectionDto(connection);
   }
@@ -180,16 +191,32 @@ export class ActorsService {
       stats?: { postsCount: number; followersCount: number; followingCount: number };
     },
   ): ActorProfileResponseDto {
+    const isOwner = Boolean(options?.includeEmail);
+    const shouldIncludeEmail = isOwner || actor.showEmail === true;
+    const shouldIncludeBirthDate = isOwner || actor.showBirthDate === true;
+    const shouldIncludeCity = isOwner || actor.showCity === true;
+
     return {
       id: actor.id,
       user_account_id: actor.userAccountId,
       username: actor.userAccount?.username ?? fallbackUsername,
-      ...(options?.includeEmail ? { email: actor.userAccount?.email ?? null } : {}),
+      ...(shouldIncludeEmail ? { email: actor.userAccount?.email ?? null } : {}),
       primary_role: actor.primaryRole,
+      ...(actor.userAccount?.localRole ? { local_role: actor.userAccount.localRole } : {}),
       first_names: actor.firstNames,
       last_names: actor.lastNames,
       avatar_url: actor.avatarUrl,
       short_bio: actor.shortBio,
+      ...(shouldIncludeBirthDate ? { birth_date: actor.birthDate ?? null } : {}),
+      ...(shouldIncludeCity ? { city: actor.city ?? null } : {}),
+      ...(isOwner
+        ? {
+            show_email: actor.showEmail ?? false,
+            show_birth_date: actor.showBirthDate ?? false,
+            show_city: actor.showCity ?? false,
+            require_follow_approval: actor.requireFollowApproval ?? false,
+          }
+        : {}),
       ...(options?.stats
         ? {
             posts_count: options.stats.postsCount,

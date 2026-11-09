@@ -26,6 +26,18 @@ const DEFAULT_SATELLITE_LINKS: ReadonlyArray<RedirectionLinkSeedItem> = [
     url: 'https://sagaup.fundacionasisco.org',
     description: 'Sistema académico y de seguimiento para beneficiarios y familias.',
   },
+  {
+    projectName: 'SON UP',
+    // TODO: confirmar URL oficial con la Fundación
+    url: 'https://sonup.fundacionasisco.org',
+    description: 'Programa de formación musical, artística y expresión cultural inclusiva.',
+  },
+  {
+    projectName: 'LUPE',
+    // TODO: confirmar URL oficial con la Fundación
+    url: 'https://lupe.fundacionasisco.org',
+    description: 'Iniciativa de emprendimiento, empleabilidad y proyectos productivos.',
+  },
 ];
 
 export async function seedRedirectionLinks(dataSource: DataSource): Promise<void> {

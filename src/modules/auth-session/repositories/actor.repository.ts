@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { DataSource, Repository } from 'typeorm';
 import { ModerationStatus } from '../../../common/enums/moderation-status.enum';
@@ -18,7 +18,9 @@ interface RawCountRow {
 }
 
 @Injectable()
-export class ActorRepository implements IActorRepository {
+export class ActorRepository implements IActorRepository, OnModuleInit {
+  private readonly logger = new Logger(ActorRepository.name);
+
   constructor(
     @InjectRepository(Actor)
     private readonly actorRepo: Repository<Actor>,
@@ -27,6 +29,27 @@ export class ActorRepository implements IActorRepository {
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.dataSource.query(`
+        ALTER TABLE "actors"
+          ADD COLUMN IF NOT EXISTS "birth_date" varchar(20) NULL,
+          ADD COLUMN IF NOT EXISTS "city" varchar(80) NULL,
+          ADD COLUMN IF NOT EXISTS "show_email" boolean NOT NULL DEFAULT false,
+          ADD COLUMN IF NOT EXISTS "show_birth_date" boolean NOT NULL DEFAULT false,
+          ADD COLUMN IF NOT EXISTS "show_city" boolean NOT NULL DEFAULT false,
+          ADD COLUMN IF NOT EXISTS "require_follow_approval" boolean NOT NULL DEFAULT false;
+      `);
+    } catch (error) {
+      // Mock / read-only environments: the formal migration remains the source of truth.
+      this.logger.warn(
+        `No se pudieron asegurar las columnas de privacidad de "actors": ${
+          error instanceof Error ? error.message : 'error desconocido'
+        }`,
+      );
+    }
+  }
 
   async findByUserAccountId(userAccountId: string): Promise<Actor | null> {
     return this.actorRepo.findOne({
@@ -71,6 +94,17 @@ export class ActorRepository implements IActorRepository {
       lastNames: fields.lastNames !== undefined ? fields.lastNames.trim() : current.lastNames,
       avatarUrl: fields.avatarUrl !== undefined ? fields.avatarUrl.trim() : current.avatarUrl,
       shortBio: fields.shortBio !== undefined ? fields.shortBio.trim() : current.shortBio,
+      birthDate:
+        fields.birthDate !== undefined ? (fields.birthDate?.trim() ?? null) : current.birthDate,
+      city: fields.city !== undefined ? (fields.city?.trim() ?? null) : current.city,
+      showEmail: fields.showEmail !== undefined ? fields.showEmail : current.showEmail,
+      showBirthDate:
+        fields.showBirthDate !== undefined ? fields.showBirthDate : current.showBirthDate,
+      showCity: fields.showCity !== undefined ? fields.showCity : current.showCity,
+      requireFollowApproval:
+        fields.requireFollowApproval !== undefined
+          ? fields.requireFollowApproval
+          : current.requireFollowApproval,
     });
     await this.actorRepo.save(merged);
     return (await this.findByUserAccountId(userAccountId)) ?? merged;
@@ -113,6 +147,7 @@ export class ActorRepository implements IActorRepository {
   async createConnection(
     requesterActorId: string,
     receiverActorId: string,
+    initialStatus: ActorConnectionStatus,
   ): Promise<ActorConnection> {
     const existing = await this.connectionRepo
       .createQueryBuilder('ac')
@@ -129,8 +164,8 @@ export class ActorRepository implements IActorRepository {
     const created = this.connectionRepo.create({
       requesterActorId,
       receiverActorId,
-      status: 'PENDING',
-      acceptedAt: null,
+      status: initialStatus,
+      acceptedAt: initialStatus === 'ACCEPTED' ? new Date() : null,
     });
 
     return this.connectionRepo.save(created);

@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Repository } from 'typeorm';
+import { seedRedirectionLinks } from '../../../database/seeds/redirection-links.seed';
 import { RedirectionLink } from '../entities/redirection-link.entity';
 import type {
   IRedirectionLinkRepository,
@@ -8,11 +9,26 @@ import type {
 } from '../interfaces/i-redirection-link.repository';
 
 @Injectable()
-export class RedirectionLinkRepository implements IRedirectionLinkRepository {
+export class RedirectionLinkRepository implements IRedirectionLinkRepository, OnModuleInit {
+  private readonly logger = new Logger(RedirectionLinkRepository.name);
+
   constructor(
     @InjectRepository(RedirectionLink)
     private readonly repository: Repository<RedirectionLink>,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    try {
+      await seedRedirectionLinks(this.repository.manager.connection);
+    } catch (error) {
+      // Mock environments: the standalone seed script remains available.
+      this.logger.warn(
+        `No se pudo asegurar el catálogo del ecosistema: ${
+          error instanceof Error ? error.message : 'error desconocido'
+        }`,
+      );
+    }
+  }
 
   async findActivePaginated(
     skip: number,

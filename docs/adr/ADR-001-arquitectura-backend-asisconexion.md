@@ -54,6 +54,11 @@ Durante la conexión con el repositorio móvil (`Frontend-Asisconnection`), se i
    - `/v1/actors/me/posts` reutiliza la tubería de `listApproved` filtrada por el `userAccountId` de la sesión autenticada.
 4. **Endpoints de Notificaciones (`GET /v1/notifications` y `PATCH /v1/notifications/read-all`)**:
    - Deriva notificaciones de actividad comunitaria reciente (comentarios aprobados de terceros en publicaciones propias dentro de los últimos 30 días) y permite marcarlas como leídas.
+5. **Persistencia de Privacidad Ley 1581 y Datos de Perfil (`Actor`)**:
+   - Se incorporaron las columnas `birth_date`, `city`, `show_email` (`DEFAULT false`), `show_birth_date` (`DEFAULT false`), `show_city` (`DEFAULT false`) y `require_follow_approval` (`DEFAULT false`) en la entidad `Actor` (junto con su migración formal `1761510000000-AddActorPrivacyAndProfileFields` y `ALTER TABLE IF NOT EXISTS` en `ActorRepository.onModuleInit` para despliegues sin pérdida de datos en Render).
+   - En `/v1/actors/me`, el titular recibe siempre sus datos completos y el estado actual de sus switches; en `/v1/actors/:id` (perfil público), `ActorsService.getProfileById` filtra dinámicamente `email`, `birth_date` y `city` devolviendo `null` salvo que el titular haya activado explícitamente el interruptor correspondiente (`show_email`, `show_birth_date`, `show_city`).
+6. **Catálogo Completo del Ecosistema ASISCO UP (`RedirectionLink`)**:
+   - El seed y la inicialización de `RedirectionLinkRepository` garantizan la presencia de los 5 módulos satélites del ecosistema universitario: `SUMA 21`, `AULA UP`, `SAGA-UP`, `SON UP` y `LUPE`.
 
 ---
 
