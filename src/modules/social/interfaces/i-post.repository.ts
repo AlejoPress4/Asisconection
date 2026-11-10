@@ -51,6 +51,19 @@ export interface CreatePostData {
   readonly rejectionReason?: string | null;
 }
 
+export interface RawAggregatedNotificationRow {
+  readonly id: string;
+  readonly notif_type:
+    | 'COMMENT_ON_POST'
+    | 'REPLY_TO_COMMENT'
+    | 'LIKE_ON_POST'
+    | 'FOUNDATION_ANNOUNCEMENT'
+    | 'NEW_FOLLOWER';
+  readonly title: string;
+  readonly body: string;
+  readonly created_at: Date;
+}
+
 export interface IPostRepository {
   findApprovedPaginated(
     categoryId: string | undefined,
@@ -70,6 +83,13 @@ export interface IPostRepository {
   findStatusById(id: string): Promise<ModerationStatus | null>;
   countPostsByDeviceSince?(deviceId: string, since: Date): Promise<number>;
   findUserAccountIdByActorId?(actorId: string): Promise<string | null>;
+  findAggregatedNotifications?(
+    userAccountId: string,
+    deviceId: string,
+    since: Date,
+  ): Promise<RawAggregatedNotificationRow[]>;
+  getLastNotificationsReadAt?(userAccountId: string): Promise<Date | null>;
+  updateLastNotificationsReadAt?(userAccountId: string): Promise<void>;
 }
 
 export const POST_REPOSITORY = Symbol('POST_REPOSITORY');

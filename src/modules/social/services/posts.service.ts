@@ -22,6 +22,7 @@ import type { CreateCommentDto } from '../dto/create-comment.dto';
 import type { CreatePostDto } from '../dto/create-post.dto';
 import type { ListPostsQueryDto } from '../dto/list-posts-query.dto';
 import type {
+  NotificationItemDto,
   NotificationsPageDto,
   NotificationsReadResponseDto,
 } from '../dto/notifications-page.dto';
@@ -441,6 +442,42 @@ export class PostsService {
       };
     }
 
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    let lastReadAt: Date | null = null;
+    if (this.postRepository.getLastNotificationsReadAt) {
+      lastReadAt = await this.postRepository.getLastNotificationsReadAt(session.userAccountId);
+    }
+
+    if (this.postRepository.findAggregatedNotifications) {
+      const rawItems = await this.postRepository.findAggregatedNotifications(
+        session.userAccountId,
+        session.sessionId,
+        thirtyDaysAgo,
+      );
+
+      const mapped: NotificationItemDto[] = rawItems.map((item) => {
+        const itemCreated = new Date(item.created_at);
+        const isRead = lastReadAt ? itemCreated.getTime() <= lastReadAt.getTime() : false;
+        return {
+          id: item.id,
+          type: item.notif_type,
+          title: item.title,
+          body: item.body,
+          is_read: isRead,
+          created_at: itemCreated.toISOString(),
+        };
+      });
+
+      const paged = mapped.slice(query.skip, query.skip + query.limit);
+
+      return {
+        data: paged,
+        meta: buildPaginationMeta(query.page, query.limit, mapped.length),
+      };
+    }
+
+    // Fallback if findAggregatedNotifications is not implemented (e.g. standard mocks)
     const { items: myPosts } = await this.postRepository.findApprovedPaginated(
       undefined,
       0,
@@ -458,8 +495,8 @@ export class PostsService {
       myPosts.map((post) => post.id),
       5,
     );
-    const thirtyDaysAgoMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    const notifications = myPosts
+    const thirtyDaysAgoMs = thirtyDaysAgo.getTime();
+    const notifications: NotificationItemDto[] = myPosts
       .flatMap((post) => {
         const comments = recentCommentsMap.get(post.id) ?? [];
         return comments
@@ -470,12 +507,13 @@ export class PostsService {
           )
           .map((comment) => {
             const actor = buildAuthorBadge(comment);
+            const isRead = lastReadAt ? comment.createdAt.getTime() <= lastReadAt.getTime() : false;
             return {
               id: comment.id,
               type: 'COMMENT_ON_POST' as const,
               title: 'Nuevo comentario en tu publicación',
               body: `${actor.display_name} comentó en tu publicación.`,
-              is_read: false,
+              is_read: isRead,
               created_at: comment.createdAt.toISOString(),
             };
           });
@@ -490,7 +528,10 @@ export class PostsService {
     };
   }
 
-  markNotificationsRead(_session: SessionContext): NotificationsReadResponseDto {
+  async markNotificationsRead(session: SessionContext): Promise<NotificationsReadResponseDto> {
+    if (session.userAccountId && this.postRepository.updateLastNotificationsReadAt) {
+      await this.postRepository.updateLastNotificationsReadAt(session.userAccountId);
+    }
     return {
       marked_read: true,
       updated_at: new Date().toISOString(),

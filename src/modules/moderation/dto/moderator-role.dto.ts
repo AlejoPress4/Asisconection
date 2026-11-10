@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class ModeratorAccountItemDto {
   @ApiProperty({ format: 'uuid' })
@@ -15,4 +15,10 @@ export class ModeratorAccountItemDto {
 
   @ApiProperty({ nullable: true, example: 'MODERATOR' })
   local_role!: string | null;
+
+  @ApiPropertyOptional({ example: 'María Gómez' })
+  display_name?: string | null;
+
+  @ApiPropertyOptional({ example: 'https://cdn.example.com/avatar.jpg' })
+  avatar_url?: string | null;
 }

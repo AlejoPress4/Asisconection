@@ -78,6 +78,22 @@ export class ModerationService {
     };
   }
 
+  async listAccounts(search?: string): Promise<ModeratorAccountItemDto[]> {
+    if (!this.moderationRepository.listAccounts) {
+      return [];
+    }
+    const items = await this.moderationRepository.listAccounts(search);
+    return items.map((item) => ({
+      id: item.id,
+      username: item.username,
+      email: item.email,
+      rol: item.rol,
+      local_role: item.localRole,
+      display_name: item.displayName ?? null,
+      avatar_url: item.avatarUrl ?? null,
+    }));
+  }
+
   async listModerators(): Promise<ModeratorAccountItemDto[]> {
     if (!this.moderationRepository.listModerators) {
       return [];

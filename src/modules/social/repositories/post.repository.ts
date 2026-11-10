@@ -10,6 +10,7 @@ import type {
   ApprovedPostProjection,
   CreatePostData,
   IPostRepository,
+  RawAggregatedNotificationRow,
 } from '../interfaces/i-post.repository';
 
 interface RawReactionCountRow {
@@ -371,5 +372,127 @@ export class PostRepository implements IPostRepository {
       [actorId],
     );
     return rows[0]?.user_account_id ?? null;
+  }
+
+  async getLastNotificationsReadAt(userAccountId: string): Promise<Date | null> {
+    const rows = await this.dataSource.query<Array<{ last_notifications_read_at: string | Date | null }>>(
+      `SELECT last_notifications_read_at FROM actors WHERE user_account_id = $1 LIMIT 1`,
+      [userAccountId],
+    );
+    const dateVal = rows[0]?.last_notifications_read_at;
+    return dateVal ? new Date(dateVal) : null;
+  }
+
+  async updateLastNotificationsReadAt(userAccountId: string): Promise<void> {
+    await this.dataSource.query(
+      `UPDATE actors SET last_notifications_read_at = NOW() WHERE user_account_id = $1`,
+      [userAccountId],
+    );
+  }
+
+  async findAggregatedNotifications(
+    userAccountId: string,
+    deviceId: string,
+    since: Date,
+  ): Promise<RawAggregatedNotificationRow[]> {
+    const query = `
+      -- 1. Reactions on my posts
+      SELECT r.id,
+             'LIKE_ON_POST' AS notif_type,
+             'Nueva reacción a tu publicación' AS title,
+             CONCAT(COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, ds.nickname, 'Alguien'), ' reaccionó a tu publicación.') AS body,
+             r.created_at
+      FROM reactions r
+      INNER JOIN posts p ON p.id = r.post_id
+      LEFT JOIN user_accounts ua ON ua.id = r.user_account_id
+      LEFT JOIN actors a ON a.user_account_id = ua.id
+      LEFT JOIN device_sessions ds ON ds.id = r.device_id
+      WHERE p.user_account_id = $1
+        AND (r.user_account_id IS NULL OR r.user_account_id != $1)
+        AND (r.device_id != $2)
+        AND r.created_at >= $3
+
+      UNION ALL
+
+      -- 2. Direct comments on my posts
+      SELECT c.id,
+             'COMMENT_ON_POST' AS notif_type,
+             'Nuevo comentario en tu publicación' AS title,
+             CONCAT(COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, ds.nickname, 'Alguien'), ' comentó tu publicación.') AS body,
+             c.created_at
+      FROM comments c
+      INNER JOIN posts p ON p.id = c.post_id
+      LEFT JOIN user_accounts ua ON ua.id = c.user_account_id
+      LEFT JOIN actors a ON a.user_account_id = ua.id
+      LEFT JOIN device_sessions ds ON ds.id = c.device_id
+      WHERE p.user_account_id = $1
+        AND (c.user_account_id IS NULL OR c.user_account_id != $1)
+        AND (c.device_id != $2)
+        AND c.status = 'APPROVED'
+        AND c.parent_id IS NULL
+        AND c.created_at >= $3
+
+      UNION ALL
+
+      -- 3. Replies to my comments
+      SELECT c.id,
+             'REPLY_TO_COMMENT' AS notif_type,
+             'Respondieron a tu comentario' AS title,
+             CONCAT(COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, ds.nickname, 'Alguien'), ' respondió a tu comentario.') AS body,
+             c.created_at
+      FROM comments c
+      INNER JOIN comments parent ON parent.id = c.parent_id
+      LEFT JOIN user_accounts ua ON ua.id = c.user_account_id
+      LEFT JOIN actors a ON a.user_account_id = ua.id
+      LEFT JOIN device_sessions ds ON ds.id = c.device_id
+      WHERE parent.user_account_id = $1
+        AND (c.user_account_id IS NULL OR c.user_account_id != $1)
+        AND (c.device_id != $2)
+        AND c.status = 'APPROVED'
+        AND c.created_at >= $3
+
+      UNION ALL
+
+      -- 4. Follower connections on my profile
+      SELECT ac.id,
+             'NEW_FOLLOWER' AS notif_type,
+             'Nueva conexión en tu perfil' AS title,
+             CONCAT(COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, 'Alguien'), ' comenzó a seguirte.') AS body,
+             ac.requested_at AS created_at
+      FROM actor_connections ac
+      INNER JOIN actors my_actor ON my_actor.id = ac.receiver_actor_id
+      INNER JOIN actors a ON a.id = ac.requester_actor_id
+      LEFT JOIN user_accounts ua ON ua.id = a.user_account_id
+      WHERE my_actor.user_account_id = $1
+        AND ac.requested_at >= $3
+
+      UNION ALL
+
+      -- 5. Foundation announcements
+      SELECT p.id,
+             'FOUNDATION_ANNOUNCEMENT' AS notif_type,
+             'Aviso oficial de ASISCO UP' AS title,
+             SUBSTRING(p.content FROM 1 FOR 100) AS body,
+             p.created_at
+      FROM posts p
+      INNER JOIN categories cat ON cat.id = p.category_id
+      WHERE (cat.name ILIKE '%noticia%' OR cat.name ILIKE '%aviso%')
+        AND p.status = 'APPROVED'
+        AND (p.user_account_id IS NULL OR p.user_account_id != $1)
+        AND p.created_at >= $3
+
+      ORDER BY created_at DESC
+      LIMIT 100;
+    `;
+
+    const rows = await this.dataSource.query<RawAggregatedNotificationRow[]>(
+      query,
+      [userAccountId, deviceId, since],
+    );
+
+    return rows.map((r) => ({
+      ...r,
+      created_at: new Date(r.created_at),
+    }));
   }
 }

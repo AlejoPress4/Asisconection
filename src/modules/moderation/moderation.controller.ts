@@ -127,6 +127,24 @@ export class ModerationController {
     return this.moderationService.updateCommentStatus(id, dto);
   }
 
+  @Get('accounts')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Lista y busca cuentas registradas para asignación de moderadores (Exclusivo ADMIN)',
+  })
+  @ApiOkResponse({
+    type: [ModeratorAccountItemDto],
+  })
+  @ApiForbiddenResponse({
+    description: 'Acceso denegado — exclusivo para rol ADMIN',
+    type: ProblemDetailsDto,
+  })
+  async listAccounts(
+    @Query('search') search?: string,
+  ): Promise<ModeratorAccountItemDto[]> {
+    return this.moderationService.listAccounts(search);
+  }
+
   @Get('moderators')
   @Roles('ADMIN')
   @ApiOperation({

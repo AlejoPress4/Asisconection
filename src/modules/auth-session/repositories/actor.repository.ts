@@ -39,7 +39,8 @@ export class ActorRepository implements IActorRepository, OnModuleInit {
           ADD COLUMN IF NOT EXISTS "show_email" boolean NOT NULL DEFAULT false,
           ADD COLUMN IF NOT EXISTS "show_birth_date" boolean NOT NULL DEFAULT false,
           ADD COLUMN IF NOT EXISTS "show_city" boolean NOT NULL DEFAULT false,
-          ADD COLUMN IF NOT EXISTS "require_follow_approval" boolean NOT NULL DEFAULT false;
+          ADD COLUMN IF NOT EXISTS "require_follow_approval" boolean NOT NULL DEFAULT false,
+          ADD COLUMN IF NOT EXISTS "last_notifications_read_at" timestamptz NULL;
       `);
     } catch (error) {
       // Mock / read-only environments: the formal migration remains the source of truth.

@@ -56,6 +56,9 @@ export class Actor {
   @Column({ name: 'require_follow_approval', type: 'boolean', default: false })
   requireFollowApproval?: boolean;
 
+  @Column({ name: 'last_notifications_read_at', type: 'timestamptz', nullable: true })
+  lastNotificationsReadAt?: Date | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

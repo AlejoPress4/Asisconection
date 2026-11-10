@@ -6,10 +6,21 @@ export class NotificationItemDto {
   id!: string;
 
   @ApiProperty({
-    enum: ['COMMENT_ON_POST', 'REPLY_TO_COMMENT', 'LIKE_ON_POST', 'FOUNDATION_ANNOUNCEMENT'],
+    enum: [
+      'COMMENT_ON_POST',
+      'REPLY_TO_COMMENT',
+      'LIKE_ON_POST',
+      'FOUNDATION_ANNOUNCEMENT',
+      'NEW_FOLLOWER',
+    ],
     example: 'COMMENT_ON_POST',
   })
-  type!: 'COMMENT_ON_POST' | 'REPLY_TO_COMMENT' | 'LIKE_ON_POST' | 'FOUNDATION_ANNOUNCEMENT';
+  type!:
+    | 'COMMENT_ON_POST'
+    | 'REPLY_TO_COMMENT'
+    | 'LIKE_ON_POST'
+    | 'FOUNDATION_ANNOUNCEMENT'
+    | 'NEW_FOLLOWER';
 
   @ApiProperty({ example: 'Nuevo comentario en tu publicación' })
   title!: string;

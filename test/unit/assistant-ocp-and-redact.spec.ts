@@ -223,7 +223,7 @@ describe('Unit — Seguridad Constitucional, Filtro Automático (OCP) y Asistent
     expect(notificationsPage.data[0]?.type).toBe('COMMENT_ON_POST');
     expect(notificationsPage.data[0]?.body).toContain('Carlos Voluntario');
 
-    const readResult = service.markNotificationsRead(session);
+    const readResult = await service.markNotificationsRead(session);
     expect(readResult.marked_read).toBe(true);
   });
 });

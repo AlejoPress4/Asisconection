@@ -44,6 +44,8 @@ interface RawModeratorRow {
   readonly email: string;
   readonly rol: string;
   readonly local_role: string | null;
+  readonly display_name?: string | null;
+  readonly avatar_url?: string | null;
 }
 
 function mapRawPendingRow(row: RawPendingRow): PendingModerationRow {
@@ -289,6 +291,35 @@ export class ModerationRepository implements IModerationRepository {
       rejectionReason: row.rejection_reason,
       updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
     };
+  }
+
+  async listAccounts(search?: string): Promise<ModeratorAccountRecord[]> {
+    let query = `
+      SELECT ua.id, ua.username, ua.email, ua.rol, ua.local_role,
+             COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username) AS display_name,
+             a.avatar_url
+      FROM user_accounts ua
+      LEFT JOIN actors a ON a.user_account_id = ua.id
+      WHERE ua.is_active = true
+    `;
+    const params: unknown[] = [];
+    if (search && search.trim().length > 0) {
+      params.push(`%${search.trim()}%`);
+      query += ` AND (ua.username ILIKE $1 OR ua.email ILIKE $1 OR a.first_names ILIKE $1 OR a.last_names ILIKE $1)`;
+    }
+    query += ` ORDER BY ua.username ASC LIMIT 50`;
+
+    const rows = await this.dataSource.query<RawModeratorRow[]>(query, params);
+
+    return rows.map((r) => ({
+      id: r.id,
+      username: r.username,
+      email: r.email,
+      rol: r.rol,
+      localRole: r.local_role,
+      displayName: r.display_name ?? null,
+      avatarUrl: r.avatar_url ?? null,
+    }));
   }
 
   async listModerators(): Promise<ModeratorAccountRecord[]> {

@@ -289,9 +289,9 @@ export class PostsController {
     description: 'Confirmación de marcado de notificaciones como leídas',
     type: NotificationsReadResponseDto,
   })
-  markNotificationsRead(
+  async markNotificationsRead(
     @CurrentSession() session: SessionContext | undefined,
-  ): NotificationsReadResponseDto {
+  ): Promise<NotificationsReadResponseDto> {
     return this.postsService.markNotificationsRead(requireSession(session));
   }
 }

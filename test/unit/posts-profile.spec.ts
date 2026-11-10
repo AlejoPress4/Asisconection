@@ -10,6 +10,9 @@ describe('PostsService - Profile Posts', () => {
   let service: PostsService;
   let findApprovedPaginatedMock: jest.Mock;
   let findUserAccountIdByActorIdMock: jest.Mock;
+  let findAggregatedNotificationsMock: jest.Mock;
+  let getLastNotificationsReadAtMock: jest.Mock;
+  let updateLastNotificationsReadAtMock: jest.Mock;
 
   const sampleSession: SessionContext = {
     sessionId: 'device-123',
@@ -42,6 +45,9 @@ describe('PostsService - Profile Posts', () => {
       total: 1,
     });
     findUserAccountIdByActorIdMock = jest.fn();
+    findAggregatedNotificationsMock = jest.fn();
+    getLastNotificationsReadAtMock = jest.fn();
+    updateLastNotificationsReadAtMock = jest.fn();
 
     const categoryRepo: ICategoryRepository = {
       findPaginated: jest.fn(),
@@ -56,6 +62,9 @@ describe('PostsService - Profile Posts', () => {
       findRecentApprovedComments: jest.fn().mockResolvedValue(new Map()),
       countApprovedCommentsByPostIds: jest.fn().mockResolvedValue(new Map()),
       findUserAccountIdByActorId: findUserAccountIdByActorIdMock,
+      findAggregatedNotifications: findAggregatedNotificationsMock,
+      getLastNotificationsReadAt: getLastNotificationsReadAtMock,
+      updateLastNotificationsReadAt: updateLastNotificationsReadAtMock,
     };
 
     const commentRepo: ICommentRepository = {
@@ -136,6 +145,62 @@ describe('PostsService - Profile Posts', () => {
       expect(result.data).toHaveLength(1);
       expect(result.data[0]?.author.display_name).toBe('maria.acudiente');
       expect(result.meta.page).toBe(1);
+    });
+  });
+
+  describe('listNotifications & markNotificationsRead', () => {
+    it('returns empty array if session has no userAccountId', async () => {
+      const anonSession: SessionContext = {
+        ...sampleSession,
+        userAccountId: null,
+      };
+
+      const result = await service.listNotifications(anonSession, { page: 1, limit: 10, skip: 0 });
+      expect(result.data).toEqual([]);
+      expect(result.meta.total_items).toBe(0);
+    });
+
+    it('aggregates notifications across interactions and determines is_read via lastReadAt', async () => {
+      const now = new Date('2026-11-09T12:00:00Z');
+      const older = new Date('2026-11-09T10:00:00Z');
+      const newer = new Date('2026-11-09T13:00:00Z');
+
+      getLastNotificationsReadAtMock.mockResolvedValue(now);
+      findAggregatedNotificationsMock.mockResolvedValue([
+        {
+          id: 'notif-1',
+          notif_type: 'LIKE_ON_POST',
+          title: 'Nueva reacción a tu publicación',
+          body: 'Carlos reaccionó a tu publicación.',
+          created_at: older,
+        },
+        {
+          id: 'notif-2',
+          notif_type: 'NEW_FOLLOWER',
+          title: 'Nueva conexión en tu perfil',
+          body: 'Lucía comenzó a seguirte.',
+          created_at: newer,
+        },
+      ]);
+
+      const result = await service.listNotifications(sampleSession, { page: 1, limit: 10, skip: 0 });
+
+      expect(findAggregatedNotificationsMock).toHaveBeenCalled();
+      expect(result.data).toHaveLength(2);
+      // older <= now -> is_read = true
+      expect(result.data[0]?.is_read).toBe(true);
+      expect(result.data[0]?.type).toBe('LIKE_ON_POST');
+      // newer > now -> is_read = false
+      expect(result.data[1]?.is_read).toBe(false);
+      expect(result.data[1]?.type).toBe('NEW_FOLLOWER');
+    });
+
+    it('updates last_notifications_read_at on markNotificationsRead', async () => {
+      const result = await service.markNotificationsRead(sampleSession);
+
+      expect(updateLastNotificationsReadAtMock).toHaveBeenCalledWith('user-account-456');
+      expect(result.marked_read).toBe(true);
+      expect(result.updated_at).toBeDefined();
     });
   });
 });

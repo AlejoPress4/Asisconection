@@ -31,6 +31,8 @@ export interface ModeratorAccountRecord {
   readonly email: string;
   readonly rol: string;
   readonly localRole: string | null;
+  readonly displayName?: string | null;
+  readonly avatarUrl?: string | null;
 }
 
 export interface IModerationRepository {
@@ -48,6 +50,7 @@ export interface IModerationRepository {
     status: AllowedModerationDecision,
   ): Promise<ModerationUpdatedRecord | null>;
   listModerators?(): Promise<ModeratorAccountRecord[]>;
+  listAccounts?(search?: string): Promise<ModeratorAccountRecord[]>;
   setLocalRole?(userAccountId: string, localRole: 'MODERATOR' | null): Promise<ModeratorAccountRecord | null>;
 }
 
