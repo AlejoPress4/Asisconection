@@ -5,21 +5,36 @@ import { Readable } from 'stream';
 import type { EnvironmentVariables } from '../../config/env.validation';
 import type { UploadMediaResponseDto } from './dto/upload-media-response.dto';
 
+function cleanEnv(value?: string): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  return trimmed.replace(/^["'](.*)["']$/, '$1').trim();
+}
+
 @Injectable()
 export class MediaService {
   private readonly logger = new Logger(MediaService.name);
   private readonly isConfigured: boolean;
 
   constructor(private readonly configService: ConfigService<EnvironmentVariables, true>) {
-    const cloudName = this.configService.get('CLOUDINARY_CLOUD_NAME', { infer: true });
-    const apiKey = this.configService.get('CLOUDINARY_API_KEY', { infer: true });
-    const apiSecret = this.configService.get('CLOUDINARY_API_SECRET', { infer: true });
+    const rawCloudName = this.configService.get('CLOUDINARY_CLOUD_NAME', { infer: true });
+    const rawApiKey = this.configService.get('CLOUDINARY_API_KEY', { infer: true });
+    const rawApiSecret = this.configService.get('CLOUDINARY_API_SECRET', { infer: true });
+
+    const cloudName = cleanEnv(rawCloudName);
+    const apiKey = cleanEnv(rawApiKey);
+    const apiSecret = cleanEnv(rawApiSecret);
 
     if (cloudName && apiKey && apiSecret) {
       cloudinary.config({
         cloud_name: cloudName,
         api_key: apiKey,
         api_secret: apiSecret,
+        secure: true,
+      });
+      this.isConfigured = true;
+    } else if (process.env['CLOUDINARY_URL']) {
+      cloudinary.config({
         secure: true,
       });
       this.isConfigured = true;
@@ -42,7 +57,7 @@ export class MediaService {
     }
 
     const defaultFolder =
-      this.configService.get('CLOUDINARY_FOLDER', { infer: true }) ?? 'asisconexion';
+      cleanEnv(this.configService.get('CLOUDINARY_FOLDER', { infer: true })) ?? 'asisconexion';
     const folder = customFolder ?? defaultFolder;
 
     return new Promise((resolve, reject) => {
@@ -55,10 +70,19 @@ export class MediaService {
         },
         (error, result?: UploadApiResponse) => {
           if (error || !result) {
-            this.logger.error('Error al subir imagen a Cloudinary', error);
+            const rawMsg =
+              error && typeof error === 'object' && 'message' in error
+                ? String(error.message)
+                : typeof error === 'string'
+                  ? error
+                  : 'Fallo al procesar y subir el archivo multimedia a Cloudinary.';
+            this.logger.error(
+              `Error al subir imagen a Cloudinary: ${rawMsg}`,
+              JSON.stringify(error),
+            );
             reject(
               new BadGatewayException(
-                'Fallo al procesar y subir el archivo multimedia al almacenamiento en la nube.',
+                `Fallo en el servicio de almacenamiento (Cloudinary): ${rawMsg}`,
               ),
             );
             return;
@@ -72,10 +96,7 @@ export class MediaService {
         },
       );
 
-      const stream = new Readable();
-      stream.push(file.buffer);
-      stream.push(null);
-      stream.pipe(uploadStream);
+      Readable.from(file.buffer).pipe(uploadStream);
     });
   }
 }
