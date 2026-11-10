@@ -69,6 +69,7 @@ export interface IPostRepository {
   create(data: CreatePostData): Promise<Post>;
   findStatusById(id: string): Promise<ModerationStatus | null>;
   countPostsByDeviceSince?(deviceId: string, since: Date): Promise<number>;
+  findUserAccountIdByActorId?(actorId: string): Promise<string | null>;
 }
 
 export const POST_REPOSITORY = Symbol('POST_REPOSITORY');

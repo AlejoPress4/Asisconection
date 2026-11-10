@@ -6,6 +6,7 @@ import { DatabaseModule } from './database/database.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
 import { AuthSessionModule } from './modules/auth-session/auth-session.module';
 import { DirectoryModule } from './modules/directory/directory.module';
+import { MediaModule } from './modules/media/media.module';
 import { ModerationModule } from './modules/moderation/moderation.module';
 import { SocialModule } from './modules/social/social.module';
 
@@ -22,6 +23,7 @@ import { SocialModule } from './modules/social/social.module';
     ModerationModule,
     DirectoryModule,
     AssistantModule,
+    MediaModule,
   ],
 })
 export class AppModule {}

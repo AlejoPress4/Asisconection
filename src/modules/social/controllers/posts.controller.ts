@@ -99,6 +99,25 @@ export class PostsController {
     return this.postsService.listMyApprovedPosts(requireSession(session), query);
   }
 
+  @Get('actors/:id/posts')
+  @ApiOperation({
+    summary: 'Lista paginada de publicaciones aprobadas de un perfil Actor específico',
+  })
+  @ApiOkResponse({
+    description: 'Página de publicaciones aprobadas del actor consultado',
+    type: PostsPageDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Perfil Actor no encontrado',
+    type: ProblemDetailsDto,
+  })
+  async listActorPosts(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query() query: PaginationQueryDto,
+  ): Promise<PostsPageDto> {
+    return this.postsService.listActorApprovedPosts(id, query);
+  }
+
   @Post('posts')
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
@@ -244,6 +263,7 @@ export class PostsController {
   }
 
   @Get('notifications')
+  @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
   @ApiOperation({
     summary: 'Lista notificaciones recientes de actividad comunitaria del actor autenticado',
@@ -260,6 +280,7 @@ export class PostsController {
   }
 
   @Patch('notifications/read-all')
+  @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
   @ApiOperation({
     summary: 'Marca todas las notificaciones del actor como leídas',

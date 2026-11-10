@@ -364,4 +364,12 @@ export class PostRepository implements IPostRepository {
       .where('p.device_id = :deviceId AND p.created_at >= :since', { deviceId, since })
       .getCount();
   }
+
+  async findUserAccountIdByActorId(actorId: string): Promise<string | null> {
+    const rows = await this.dataSource.query<Array<{ user_account_id: string }>>(
+      `SELECT user_account_id FROM actors WHERE id = $1 OR user_account_id = $1 LIMIT 1`,
+      [actorId],
+    );
+    return rows[0]?.user_account_id ?? null;
+  }
 }

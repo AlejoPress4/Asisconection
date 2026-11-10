@@ -50,6 +50,9 @@ import {
 export const PENDING_MODERATION_MESSAGE =
   'Contenido recibido y enviado a moderación humana antes de su publicación.';
 
+export const APPROVED_MODERATION_MESSAGE =
+  'Contenido publicado y aprobado exitosamente.';
+
 export const AUTO_REJECTED_MODERATION_MESSAGE =
   'Contenido rechazado automáticamente por infringir las políticas de protección comunitaria.';
 
@@ -157,6 +160,20 @@ export class PostsService {
     return this.listApproved(query, session.userAccountId);
   }
 
+  async listActorApprovedPosts(
+    actorId: string,
+    query: PaginationQueryDto,
+  ): Promise<PostsPageDto> {
+    if (!this.postRepository.findUserAccountIdByActorId) {
+      throw new NotFoundException('El perfil solicitado no existe.');
+    }
+    const userAccountId = await this.postRepository.findUserAccountIdByActorId(actorId);
+    if (!userAccountId) {
+      throw new NotFoundException('El perfil solicitado no existe.');
+    }
+    return this.listApproved(query, userAccountId);
+  }
+
   async listApprovedComments(
     postId: string,
     query: PaginationQueryDto,
@@ -190,6 +207,25 @@ export class PostsService {
       })),
       meta: buildPaginationMeta(query.page, query.limit, total),
     };
+  }
+
+  private isPrivilegedModerator(session: SessionContext): boolean {
+    if (!session || !session.userAccountId || session.isAccountActive === false) {
+      return false;
+    }
+    const roles = new Set<string>();
+    if (session.rol) {
+      roles.add(session.rol);
+    }
+    if (session.externalRoles) {
+      for (const role of session.externalRoles) {
+        roles.add(role);
+      }
+    }
+    if (session.localRole) {
+      roles.add(session.localRole);
+    }
+    return roles.has('ADMIN') || roles.has('MODERATOR');
   }
 
   async createPost(
@@ -231,10 +267,14 @@ export class PostsService {
     }
 
     const filterEvaluation = this.contentFilterService?.evaluate(dto.content);
-    const initialStatus =
-      filterEvaluation?.status === ModerationStatus.REJECTED
-        ? ModerationStatus.REJECTED
-        : ModerationStatus.PENDING;
+    let initialStatus: ModerationStatus;
+    if (filterEvaluation?.status === ModerationStatus.REJECTED) {
+      initialStatus = ModerationStatus.REJECTED;
+    } else if (this.isPrivilegedModerator(session)) {
+      initialStatus = ModerationStatus.APPROVED;
+    } else {
+      initialStatus = ModerationStatus.PENDING;
+    }
     const rejectionReason = filterEvaluation?.rejectionReason ?? null;
 
     const post = await this.postRepository.create({
@@ -248,19 +288,19 @@ export class PostsService {
       rejectionReason,
     });
 
-    const effectiveStatus =
-      post.status === ModerationStatus.REJECTED
-        ? ModerationStatus.REJECTED
-        : ModerationStatus.PENDING;
+    const effectiveStatus = post.status;
+    let message = PENDING_MODERATION_MESSAGE;
+    if (effectiveStatus === ModerationStatus.REJECTED) {
+      message = AUTO_REJECTED_MODERATION_MESSAGE;
+    } else if (effectiveStatus === ModerationStatus.APPROVED) {
+      message = APPROVED_MODERATION_MESSAGE;
+    }
 
     return {
       id: post.id,
       status: effectiveStatus,
       ...(rejectionReason ? { rejection_reason: rejectionReason } : {}),
-      message:
-        effectiveStatus === ModerationStatus.REJECTED
-          ? AUTO_REJECTED_MODERATION_MESSAGE
-          : PENDING_MODERATION_MESSAGE,
+      message,
       created_at: post.createdAt.toISOString(),
     };
   }
@@ -301,10 +341,14 @@ export class PostsService {
     }
 
     const filterEvaluation = this.contentFilterService?.evaluate(dto.content);
-    const initialStatus =
-      filterEvaluation?.status === ModerationStatus.REJECTED
-        ? ModerationStatus.REJECTED
-        : ModerationStatus.PENDING;
+    let initialStatus: ModerationStatus;
+    if (filterEvaluation?.status === ModerationStatus.REJECTED) {
+      initialStatus = ModerationStatus.REJECTED;
+    } else if (this.isPrivilegedModerator(session)) {
+      initialStatus = ModerationStatus.APPROVED;
+    } else {
+      initialStatus = ModerationStatus.PENDING;
+    }
     const rejectionReason = filterEvaluation?.rejectionReason ?? null;
 
     const comment = await this.commentRepository.create({
@@ -317,19 +361,19 @@ export class PostsService {
       rejectionReason,
     });
 
-    const effectiveStatus =
-      comment.status === ModerationStatus.REJECTED
-        ? ModerationStatus.REJECTED
-        : ModerationStatus.PENDING;
+    const effectiveStatus = comment.status;
+    let message = PENDING_MODERATION_MESSAGE;
+    if (effectiveStatus === ModerationStatus.REJECTED) {
+      message = AUTO_REJECTED_MODERATION_MESSAGE;
+    } else if (effectiveStatus === ModerationStatus.APPROVED) {
+      message = APPROVED_MODERATION_MESSAGE;
+    }
 
     return {
       id: comment.id,
       status: effectiveStatus,
       ...(rejectionReason ? { rejection_reason: rejectionReason } : {}),
-      message:
-        effectiveStatus === ModerationStatus.REJECTED
-          ? AUTO_REJECTED_MODERATION_MESSAGE
-          : PENDING_MODERATION_MESSAGE,
+      message,
       created_at: comment.createdAt.toISOString(),
     };
   }

@@ -6,10 +6,10 @@ export class PendingSubmissionResponseDto {
   id!: string;
 
   @ApiProperty({
-    enum: [ModerationStatus.PENDING, ModerationStatus.REJECTED],
+    enum: [ModerationStatus.PENDING, ModerationStatus.REJECTED, ModerationStatus.APPROVED],
     example: ModerationStatus.PENDING,
   })
-  status!: ModerationStatus.PENDING | ModerationStatus.REJECTED;
+  status!: ModerationStatus;
 
   @ApiPropertyOptional({
     nullable: true,

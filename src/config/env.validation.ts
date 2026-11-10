@@ -90,6 +90,22 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   CORS_ORIGINS?: string;
+
+  @IsOptional()
+  @IsString()
+  CLOUDINARY_CLOUD_NAME?: string;
+
+  @IsOptional()
+  @IsString()
+  CLOUDINARY_API_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  CLOUDINARY_API_SECRET?: string;
+
+  @IsOptional()
+  @IsString()
+  CLOUDINARY_FOLDER: string = 'asisconexion';
 }
 
 function parseBooleanEnv(value: unknown, fallback: boolean): boolean {
@@ -153,6 +169,10 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
     ),
     ASSISTANT_ENGINE: parseStringEnv(config['ASSISTANT_ENGINE'], 'faq'),
     CORS_ORIGINS: parseStringEnv(config['CORS_ORIGINS']),
+    CLOUDINARY_CLOUD_NAME: parseStringEnv(config['CLOUDINARY_CLOUD_NAME']),
+    CLOUDINARY_API_KEY: parseStringEnv(config['CLOUDINARY_API_KEY']),
+    CLOUDINARY_API_SECRET: parseStringEnv(config['CLOUDINARY_API_SECRET']),
+    CLOUDINARY_FOLDER: parseStringEnv(config['CLOUDINARY_FOLDER'], 'asisconexion'),
   };
 
   const validatedConfig = plainToInstance(EnvironmentVariables, normalized, {
