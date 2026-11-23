@@ -12,6 +12,7 @@ export interface ICategoryRepository {
     take: number,
   ): Promise<{ items: CategoryProjection[]; total: number }>;
   existsById(id: string): Promise<boolean>;
+  findCategoryById?(id: string): Promise<CategoryProjection | null>;
 }
 
 export const CATEGORY_REPOSITORY = Symbol('CATEGORY_REPOSITORY');

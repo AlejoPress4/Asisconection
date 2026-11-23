@@ -62,6 +62,20 @@ function readRolesArray(record: Record<string, unknown>): string[] {
   return [];
 }
 
+function hasExplicitUserFields(data: unknown): boolean {
+  const root = asRecord(data);
+  if (!root) {
+    return false;
+  }
+  const nestedUser =
+    asRecord(root['usuario']) ?? asRecord(root['user']) ?? asRecord(root['data']);
+  const source = nestedUser ?? root;
+  const hasUsername = readOptionalString(source, 'username') !== null;
+  const hasRoles =
+    readRolesArray(source).length > 0 || (root ? readRolesArray(root).length > 0 : false);
+  return hasUsername && hasRoles;
+}
+
 function parseExternalUserResponse(
   data: unknown,
   fallback: { username?: string; email?: string; rol?: string },
@@ -139,11 +153,19 @@ export class ExternalAuthHttpAdapter implements IExternalAuthAdapter {
       const response = await firstValueFrom(
         this.httpService.post<unknown>(this.registerPath, strictPayload),
       );
-      return parseExternalUserResponse(response.data, {
+      const initialResult = parseExternalUserResponse(response.data, {
         username: payload.username,
         email: payload.email,
         rol: payload.rol,
       });
+      if (initialResult.externalToken && !hasExplicitUserFields(response.data)) {
+        return await this.enrichWithProfile(initialResult, {
+          username: payload.username,
+          email: payload.email,
+          rol: payload.rol,
+        });
+      }
+      return initialResult;
     } catch (error: unknown) {
       if (error instanceof BadGatewayException || error instanceof ConflictException) {
         throw error;
@@ -186,10 +208,15 @@ export class ExternalAuthHttpAdapter implements IExternalAuthAdapter {
       const response = await firstValueFrom(
         this.httpService.post<unknown>(this.loginPath, loginPayload),
       );
-      return parseExternalUserResponse(response.data, {
+      const fallback = {
         username: trimmed.includes('@') ? undefined : trimmed,
         email: trimmed.includes('@') ? trimmed : undefined,
-      });
+      };
+      const initialResult = parseExternalUserResponse(response.data, fallback);
+      if (initialResult.externalToken && !hasExplicitUserFields(response.data)) {
+        return await this.enrichWithProfile(initialResult, fallback);
+      }
+      return initialResult;
     } catch (error: unknown) {
       if (error instanceof BadGatewayException || error instanceof UnauthorizedException) {
         throw error;
@@ -217,6 +244,41 @@ export class ExternalAuthHttpAdapter implements IExternalAuthAdapter {
       throw new BadGatewayException(
         'El servicio central de autenticación no se encuentra disponible temporalmente.',
       );
+    }
+  }
+
+  private async enrichWithProfile(
+    initialResult: ExternalAuthUserResult,
+    fallback: { username?: string; email?: string; rol?: string },
+  ): Promise<ExternalAuthUserResult> {
+    if (!initialResult.externalToken) {
+      return initialResult;
+    }
+    try {
+      const profileResponse = await firstValueFrom(
+        this.httpService.get<unknown>(this.profilePath, {
+          headers: { Authorization: `Bearer ${initialResult.externalToken}` },
+        }),
+      );
+      const enriched = parseExternalUserResponse(profileResponse.data, {
+        username: fallback.username ?? initialResult.username,
+        email: fallback.email ?? initialResult.email,
+        rol: fallback.rol ?? initialResult.rol,
+      });
+      return {
+        ...enriched,
+        externalUserId: enriched.externalUserId ?? initialResult.externalUserId,
+        externalToken: initialResult.externalToken,
+        expiresAt: initialResult.expiresAt ?? enriched.expiresAt,
+      };
+    } catch (error: unknown) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      this.logger.warn(
+        'No fue posible enriquecer el perfil desde /auth/perfil tras autenticación; se conserva el resultado base.',
+      );
+      return initialResult;
     }
   }
 

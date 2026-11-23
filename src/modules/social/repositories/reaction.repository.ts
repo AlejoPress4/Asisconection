@@ -30,13 +30,21 @@ export class ReactionRepository implements IReactionRepository {
     try {
       return await this.dataSource.transaction(async (manager) => {
         const repo = manager.getRepository(Reaction);
-        const existing = await repo.findOne({
-          where: { postId, deviceId, type },
-          select: { id: true },
-        });
+        const existing = userAccountId
+          ? await repo.find({
+              where: [
+                { postId, userAccountId, type },
+                { postId, deviceId, type },
+              ],
+              select: { id: true },
+            })
+          : await repo.find({
+              where: { postId, deviceId, type },
+              select: { id: true },
+            });
 
-        if (existing) {
-          await repo.delete({ id: existing.id });
+        if (existing.length > 0) {
+          await repo.delete(existing.map((item) => item.id));
           return false;
         }
 
@@ -66,13 +74,21 @@ export class ReactionRepository implements IReactionRepository {
     try {
       return await this.dataSource.transaction(async (manager) => {
         const repo = manager.getRepository(CommentReaction);
-        const existing = await repo.findOne({
-          where: { commentId, deviceId, type },
-          select: { id: true },
-        });
+        const existing = userAccountId
+          ? await repo.find({
+              where: [
+                { commentId, userAccountId, type },
+                { commentId, deviceId, type },
+              ],
+              select: { id: true },
+            })
+          : await repo.find({
+              where: { commentId, deviceId, type },
+              select: { id: true },
+            });
 
-        if (existing) {
-          await repo.delete({ id: existing.id });
+        if (existing.length > 0) {
+          await repo.delete(existing.map((item) => item.id));
           return false;
         }
 

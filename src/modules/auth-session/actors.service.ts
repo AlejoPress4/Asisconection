@@ -53,6 +53,14 @@ export class ActorsService {
     dto: UpdateActorProfileDto,
   ): Promise<ActorProfileResponseDto> {
     const userAccountId = this.requireRegisteredUser(session);
+    if (dto.primary_role !== undefined) {
+      const normalizedRole = dto.primary_role.trim().toUpperCase();
+      if (normalizedRole === 'ADMIN' || normalizedRole === 'MODERATOR') {
+        throw new ForbiddenException(
+          'No está permitido autoasignarse un rol administrativo o de moderación en el perfil.',
+        );
+      }
+    }
     const updated = await this.actorRepository.updateByUserAccountId(
       userAccountId,
       session.rol ?? 'ACUDIENTE',

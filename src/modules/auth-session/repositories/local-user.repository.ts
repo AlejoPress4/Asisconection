@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import type { DataSource, EntityManager } from 'typeorm';
@@ -40,6 +40,7 @@ export class LocalUserRepository implements IUserSyncRepository {
         input.externalUserId,
         input.username,
         input.email,
+        input.isNewRegistration === true,
       );
 
       if (existingUser && !existingUser.isActive) {
@@ -51,19 +52,25 @@ export class LocalUserRepository implements IUserSyncRepository {
           ? [...input.externalRoles]
           : [input.rol];
 
+      const trimmedUsername = input.username.trim();
+      const normalizedEmail = input.email.trim().toLowerCase();
+      const isEmailFallbackUsername = trimmedUsername.toLowerCase() === normalizedEmail;
+      const effectiveUsername =
+        existingUser && isEmailFallbackUsername ? existingUser.username : trimmedUsername;
+
       const userToSave = existingUser
         ? userRepo.merge(existingUser, {
             externalUserId: input.externalUserId ?? existingUser.externalUserId,
-            username: input.username.trim(),
-            email: input.email.trim().toLowerCase(),
+            username: effectiveUsername,
+            email: normalizedEmail,
             rol: input.rol,
             externalRoles: normalizedExternalRoles,
             lastSyncedAt: now,
           })
         : userRepo.create({
             externalUserId: input.externalUserId,
-            username: input.username.trim(),
-            email: input.email.trim().toLowerCase(),
+            username: trimmedUsername,
+            email: normalizedEmail,
             rol: input.rol,
             externalRoles: normalizedExternalRoles,
             localRole: null,
@@ -128,6 +135,29 @@ export class LocalUserRepository implements IUserSyncRepository {
 
       const savedSession = await sessionRepo.save(sessionToSave);
 
+      if (targetSession) {
+        await manager.query(
+          `UPDATE posts SET user_account_id = $1::uuid WHERE device_id = $2::uuid AND user_account_id IS NULL`,
+          [savedUser.id, targetSession.id],
+        );
+        await manager.query(
+          `UPDATE comments SET user_account_id = $1::uuid WHERE device_id = $2::uuid AND user_account_id IS NULL`,
+          [savedUser.id, targetSession.id],
+        );
+        await manager.query(
+          `UPDATE reactions SET user_account_id = $1::uuid WHERE device_id = $2::uuid AND user_account_id IS NULL`,
+          [savedUser.id, targetSession.id],
+        );
+        await manager.query(
+          `UPDATE comment_reactions SET user_account_id = $1::uuid WHERE device_id = $2::uuid AND user_account_id IS NULL`,
+          [savedUser.id, targetSession.id],
+        );
+        await manager.query(
+          `UPDATE post_bookmarks SET user_account_id = $1::uuid WHERE device_id = $2::uuid AND user_account_id IS NULL`,
+          [savedUser.id, targetSession.id],
+        );
+      }
+
       return {
         user: savedUser,
         actor: savedActor,
@@ -165,40 +195,64 @@ export class LocalUserRepository implements IUserSyncRepository {
     externalUserId: number | null,
     username: string,
     email: string,
+    isNewRegistration = false,
   ): Promise<UserAccount | null> {
     const userRepo = manager.getRepository(UserAccount);
 
-    if (externalUserId !== null && externalUserId !== undefined) {
-      const byExternal = await userRepo.findOne({
-        where: { externalUserId },
-      });
-      if (byExternal) {
-        return byExternal;
-      }
-    }
+    const byExternal =
+      externalUserId !== null && externalUserId !== undefined
+        ? await userRepo.findOne({ where: { externalUserId } })
+        : null;
 
     const normalizedUsername = username.trim().toLowerCase();
-    if (normalizedUsername) {
-      const byUsername = await userRepo
-        .createQueryBuilder('u')
-        .where('LOWER(u.username) = :normalizedUsername', { normalizedUsername })
-        .getOne();
-      if (byUsername) {
-        return byUsername;
-      }
-    }
+    const byUsername = normalizedUsername
+      ? await userRepo
+          .createQueryBuilder('u')
+          .where('LOWER(u.username) = :normalizedUsername', { normalizedUsername })
+          .getOne()
+      : null;
 
     const normalizedEmail = email.trim().toLowerCase();
-    if (normalizedEmail) {
-      const byEmail = await userRepo
-        .createQueryBuilder('u')
-        .where('LOWER(u.email) = :normalizedEmail', { normalizedEmail })
-        .getOne();
-      if (byEmail) {
-        return byEmail;
-      }
+    const byEmail = normalizedEmail
+      ? await userRepo
+          .createQueryBuilder('u')
+          .where('LOWER(u.email) = :normalizedEmail', { normalizedEmail })
+          .getOne()
+      : null;
+
+    const matches = [byExternal, byUsername, byEmail].filter(
+      (candidate): candidate is UserAccount => candidate !== null,
+    );
+
+    if (matches.length === 0) {
+      return null;
     }
 
-    return null;
+    if (isNewRegistration) {
+      throw new ConflictException(
+        'El username o email ya se encuentra registrado en AsisConexión.',
+      );
+    }
+
+    const distinctIds = new Set(matches.map((u) => u.id));
+    if (distinctIds.size > 1) {
+      throw new ConflictException(
+        'Conflicto de identidad: el username y el email pertenecen a cuentas distintas.',
+      );
+    }
+
+    const matched = matches[0]!;
+    if (
+      externalUserId !== null &&
+      externalUserId !== undefined &&
+      matched.externalUserId !== null &&
+      matched.externalUserId !== externalUserId
+    ) {
+      throw new ConflictException(
+        'Conflicto de identidad: el correo o usuario ya está vinculado a otra cuenta externa.',
+      );
+    }
+
+    return matched;
   }
 }

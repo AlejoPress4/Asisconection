@@ -364,6 +364,19 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
       return null;
     }
 
+    if (status === ModerationStatus.REJECTED) {
+      await this.dataSource.query(
+        `
+          UPDATE comments
+          SET
+            status = $1::"public"."moderation_status_enum",
+            rejection_reason = $3
+          WHERE parent_id = $2::uuid
+        `,
+        [status, id, rejectionReason],
+      );
+    }
+
     return {
       id: row.id,
       itemType: 'COMMENT',

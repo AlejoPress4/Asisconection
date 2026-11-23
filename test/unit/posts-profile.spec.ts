@@ -303,11 +303,11 @@ describe('PostsService - Profile Posts', () => {
         filterService,
       );
 
-      // Edición limpia vuelve a PENDING (RN-02)
-      const pendingRes = await lifecycleService.updatePost(sampleSession, 'post-1', {
+      // Edición limpia se mantiene en APPROVED (aprobación directa)
+      const approvedRes = await lifecycleService.updatePost(sampleSession, 'post-1', {
         content: 'Texto editado sin enlaces externos',
       });
-      expect(pendingRes.status).toBe(ModerationStatus.PENDING);
+      expect(approvedRes.status).toBe(ModerationStatus.APPROVED);
 
       // Edición con enlace externo pasa a REJECTED (AUTO_FILTER)
       const rejectedRes = await lifecycleService.updatePost(sampleSession, 'post-1', {
@@ -324,6 +324,39 @@ describe('PostsService - Profile Posts', () => {
       // Toggle bookmark
       const bookmarkRes = await lifecycleService.toggleBookmark(sampleSession, 'post-1');
       expect(bookmarkRes).toEqual({ post_id: 'post-1', bookmarked: true });
+    });
+
+    it('blocks non-privileged users from creating posts in institutional categories (BK-06)', async () => {
+      const institutionalService = new PostsService(
+        {
+          findPaginated: jest.fn(),
+          existsById: jest.fn().mockResolvedValue(true),
+          findCategoryById: jest.fn().mockResolvedValue({
+            id: 'cat-inst',
+            name: 'Noticias de la Fundación',
+            mainTopic: 'Institucional',
+            description: 'Novedades oficiales',
+            coverImageUrl: null,
+          }),
+        },
+        {
+          create: jest.fn(),
+          findStatusById: jest.fn(),
+          findApprovedPaginated: findApprovedPaginatedMock,
+          countReactionsByPostIds: jest.fn(),
+          findRecentApprovedComments: jest.fn(),
+          countApprovedCommentsByPostIds: jest.fn(),
+        },
+        { create: jest.fn() },
+        { toggle: jest.fn() },
+      );
+
+      await expect(
+        institutionalService.createPost(sampleSession, {
+          category_id: 'cat-inst',
+          content: 'Intento de aviso oficial por acudiente',
+        }),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

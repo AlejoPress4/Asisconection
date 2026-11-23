@@ -16,7 +16,6 @@ export const ALLOWED_REGISTRATION_ROLES = [
   'VOLUNTARIO',
   'INVERSOR',
   'BENEFICIARIO',
-  'ADMIN',
 ] as const;
 
 export type RegistrationRole = (typeof ALLOWED_REGISTRATION_ROLES)[number];

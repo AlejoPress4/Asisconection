@@ -17,12 +17,18 @@ import { validationExceptionFactory } from '../../src/common/filters/validation-
 import { DeviceSessionGuard } from '../../src/common/guards/device-session.guard';
 import { OptionalDeviceSessionGuard } from '../../src/common/guards/optional-device-session.guard';
 import { RolesGuard } from '../../src/common/guards/roles.guard';
-import { AssistantController } from '../../src/modules/assistant/assistant.controller';
+import {
+  AdminFaqsController,
+  AssistantController,
+} from '../../src/modules/assistant/assistant.controller';
 import { AssistantService } from '../../src/modules/assistant/assistant.service';
 import { ASSISTANT_ENGINE_PROVIDER } from '../../src/modules/assistant/interfaces/i-assistant-engine.provider';
 import {
+  type CreateFaqKnowledgeInput,
   FAQ_KNOWLEDGE_REPOSITORY,
+  type FaqKnowledgeProjection,
   type IFaqKnowledgeRepository,
+  type UpdateFaqKnowledgeInput,
 } from '../../src/modules/assistant/interfaces/i-faq-knowledge.repository';
 import { FaqRuleEngineProvider } from '../../src/modules/assistant/providers/faq-rule-engine.provider';
 import { ActorsController } from '../../src/modules/auth-session/actors.controller';
@@ -51,11 +57,17 @@ import {
   USER_SYNC_REPOSITORY,
 } from '../../src/modules/auth-session/interfaces/i-local-user.repository';
 import { RENDER_AUTH_ADAPTER } from '../../src/modules/auth-session/interfaces/i-render-auth.adapter';
-import { DirectoryController } from '../../src/modules/directory/directory.controller';
+import {
+  AdminDirectoryController,
+  DirectoryController,
+} from '../../src/modules/directory/directory.controller';
 import { DirectoryService } from '../../src/modules/directory/directory.service';
 import {
+  type CreateRedirectionLinkInput,
   type IRedirectionLinkRepository,
   REDIRECTION_LINK_REPOSITORY,
+  type RedirectionLinkProjection,
+  type UpdateRedirectionLinkInput,
 } from '../../src/modules/directory/interfaces/i-redirection-link.repository';
 import { ContentFilterService } from '../../src/modules/moderation/content-filter.service';
 import {
@@ -108,8 +120,7 @@ class InMemoryPersistenceStore
     IPostRepository,
     ICommentRepository,
     IReactionRepository,
-    IModerationRepository,
-    IRedirectionLinkRepository
+    IModerationRepository
 {
   readonly users = new Map<string, UserAccount>();
   readonly actors = new Map<string, Actor>();
@@ -1055,30 +1066,105 @@ class InMemoryPersistenceStore
     return Promise.resolve(updated);
   }
 
-  findActivePaginated(skip: number, take: number) {
-    const links = [
+}
+
+class InMemoryDirectoryRepo implements IRedirectionLinkRepository {
+  private readonly directoryLinks = new Map<string, RedirectionLinkProjection>([
+    [
+      '22222222-2222-4222-8222-222222222222',
       {
         id: '22222222-2222-4222-8222-222222222222',
         projectName: 'SUMA 21',
         url: 'https://suma21.fundacionasisco.org',
         description: 'Inclusión social y formación integral.',
       },
-    ];
+    ],
+  ]);
+
+  findActivePaginated(skip: number, take: number) {
+    const links = Array.from(this.directoryLinks.values());
     return Promise.resolve({ items: links.slice(skip, skip + take), total: links.length });
+  }
+
+  create(input: CreateRedirectionLinkInput): Promise<RedirectionLinkProjection> {
+    const created: RedirectionLinkProjection = {
+      id: randomUUID(),
+      projectName: input.projectName,
+      url: input.url,
+      description: input.description,
+    };
+    this.directoryLinks.set(created.id, created);
+    return Promise.resolve(created);
+  }
+
+  update(id: string, input: UpdateRedirectionLinkInput): Promise<RedirectionLinkProjection | null> {
+    const existing = this.directoryLinks.get(id);
+    if (!existing) {
+      return Promise.resolve(null);
+    }
+    const updated: RedirectionLinkProjection = {
+      ...existing,
+      projectName: input.projectName ?? existing.projectName,
+      url: input.url ?? existing.url,
+      description: input.description ?? existing.description,
+    };
+    this.directoryLinks.set(id, updated);
+    return Promise.resolve(updated);
+  }
+
+  deleteById(id: string): Promise<boolean> {
+    return Promise.resolve(this.directoryLinks.delete(id));
   }
 }
 
 class InMemoryFaqRepo implements IFaqKnowledgeRepository {
-  findPaginated(category: string | undefined, skip: number, take: number) {
-    const faqs = [
+  private readonly items = new Map<string, FaqKnowledgeProjection>([
+    [
+      '33333333-3333-4333-8333-333333333333',
       {
         id: '33333333-3333-4333-8333-333333333333',
         question: '¿Cómo inscribo a un beneficiario?',
         answer: 'Con autorización Ley 1581.',
         category: 'Inscripciones',
       },
-    ].filter((f) => !category || f.category.toLowerCase() === category.toLowerCase());
+    ],
+  ]);
+
+  findPaginated(category: string | undefined, skip: number, take: number) {
+    const faqs = Array.from(this.items.values()).filter(
+      (f) => !category || f.category.toLowerCase() === category.toLowerCase(),
+    );
     return Promise.resolve({ items: faqs.slice(skip, skip + take), total: faqs.length });
+  }
+
+  create(input: CreateFaqKnowledgeInput): Promise<FaqKnowledgeProjection> {
+    const created: FaqKnowledgeProjection = {
+      id: randomUUID(),
+      question: input.question,
+      answer: input.answer,
+      category: input.category,
+    };
+    this.items.set(created.id, created);
+    return Promise.resolve(created);
+  }
+
+  update(id: string, input: UpdateFaqKnowledgeInput): Promise<FaqKnowledgeProjection | null> {
+    const existing = this.items.get(id);
+    if (!existing) {
+      return Promise.resolve(null);
+    }
+    const updated: FaqKnowledgeProjection = {
+      ...existing,
+      question: input.question ?? existing.question,
+      answer: input.answer ?? existing.answer,
+      category: input.category ?? existing.category,
+    };
+    this.items.set(id, updated);
+    return Promise.resolve(updated);
+  }
+
+  deleteById(id: string): Promise<boolean> {
+    return Promise.resolve(this.items.delete(id));
   }
 }
 
@@ -1088,6 +1174,7 @@ describe('Contract & E2E — AsisConexión MVP v2 (US1–US6, Render Auth, Actor
   beforeAll(async () => {
     const store = new InMemoryPersistenceStore();
     const faqRepo = new InMemoryFaqRepo();
+    const directoryRepo = new InMemoryDirectoryRepo();
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -1123,7 +1210,9 @@ describe('Contract & E2E — AsisConexión MVP v2 (US1–US6, Render Auth, Actor
         PostsController,
         ModerationController,
         DirectoryController,
+        AdminDirectoryController,
         AssistantController,
+        AdminFaqsController,
       ],
       providers: [
         SessionTokenService,
@@ -1159,7 +1248,7 @@ describe('Contract & E2E — AsisConexión MVP v2 (US1–US6, Render Auth, Actor
           ): ReadonlyArray<IContentRule> => [profanity, extLink, minorData, spam],
         },
         ContentFilterService,
-        { provide: REDIRECTION_LINK_REPOSITORY, useValue: store },
+        { provide: REDIRECTION_LINK_REPOSITORY, useValue: directoryRepo },
         { provide: FAQ_KNOWLEDGE_REPOSITORY, useValue: faqRepo },
         { provide: ASSISTANT_ENGINE_PROVIDER, useClass: FaqRuleEngineProvider },
         AuthSessionService,
@@ -1244,7 +1333,7 @@ describe('Contract & E2E — AsisConexión MVP v2 (US1–US6, Render Auth, Actor
       rejection_reason: 'AUTO_FILTER',
     });
 
-    // 4. Publicación limpia con media_urls pasa a PENDING
+    // 4. Publicación limpia con media_urls entra directamente con status = APPROVED
     const postRes = await request(httpServer)
       .post('/v1/posts')
       .set('Authorization', `Bearer ${regBody.device_token}`)
@@ -1255,7 +1344,7 @@ describe('Contract & E2E — AsisConexión MVP v2 (US1–US6, Render Auth, Actor
       })
       .expect(201);
     const postBody = postRes.body as { id: string; status: string };
-    expect(postBody.status).toBe('PENDING');
+    expect(postBody.status).toBe('APPROVED');
 
     // 5. Login de ADMIN en /v1/auth/login y promoción de lucia.acudiente a MODERATOR global
     const adminLogin = await request(httpServer)
@@ -1449,21 +1538,79 @@ describe('Contract & E2E — AsisConexión MVP v2 (US1–US6, Render Auth, Actor
       .send({ status: 'DISMISSED' })
       .expect(200);
 
-    // CU-03: Andrés edita su publicación -> regresa a PENDING (RN-02) y aparece en /v1/actors/me/submissions
+    // CU-03: Andrés edita su publicación -> permanece en APPROVED si supera el filtro automático y aparece en /v1/actors/me/submissions
     const editRes = await request(httpServer)
       .patch(`/v1/posts/${postAId}`)
       .set('Authorization', `Bearer ${tokenA}`)
       .send({ content: 'Jornada de lectura comunitaria actualizada.' })
       .expect(200);
-    expect((editRes.body as { status: string }).status).toBe('PENDING');
+    expect((editRes.body as { status: string }).status).toBe('APPROVED');
 
     const mySubmissionsRes = await request(httpServer)
-      .get('/v1/actors/me/submissions?status=PENDING')
+      .get('/v1/actors/me/submissions?status=APPROVED')
       .set('Authorization', `Bearer ${tokenA}`)
       .expect(200);
     expect(
       (mySubmissionsRes.body as { data: Array<{ id: string }> }).data.map((s) => s.id),
     ).toContain(postAId);
+
+    // BK-01: El ADMIN crea, actualiza y elimina una FAQ en /v1/admin/faqs
+    const createdFaqRes = await request(httpServer)
+      .post('/v1/admin/faqs')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        question: '¿Cómo participar en talleres?',
+        answer: 'Inscríbete desde los canales oficiales de ASISCO UP.',
+        category: 'Talleres',
+      })
+      .expect(201);
+    const createdFaqId = (createdFaqRes.body as { id: string }).id;
+
+    await request(httpServer)
+      .patch(`/v1/admin/faqs/${createdFaqId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ category: 'Formación' })
+      .expect(200);
+
+    await request(httpServer)
+      .delete(`/v1/admin/faqs/${createdFaqId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    // BK-01: El ADMIN crea, actualiza y elimina un enlace en /v1/admin/directory/links
+    const createdLinkRes = await request(httpServer)
+      .post('/v1/admin/directory/links')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        project_name: 'Red Familias ASISCO',
+        url: 'https://familias.fundacionasisco.org',
+        description: 'Red de acompañamiento familiar.',
+      })
+      .expect(201);
+    const createdLinkId = (createdLinkRes.body as { id: string }).id;
+
+    await request(httpServer)
+      .patch(`/v1/admin/directory/links/${createdLinkId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ project_name: 'Red Familias ASISCO UP' })
+      .expect(200);
+
+    await request(httpServer)
+      .delete(`/v1/admin/directory/links/${createdLinkId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    // BK-06: No se permite autoasignar rol ADMIN en registro público
+    await request(httpServer)
+      .post('/v1/auth/registro')
+      .send({
+        username: 'hacker.admin',
+        email: 'hacker@prueba.com',
+        clave: 'ClaveSegura2026',
+        rol: 'ADMIN',
+        accept_consent: true,
+      })
+      .expect(400);
 
     // Andrés elimina su publicación y Camila deja de seguir a Andrés
     await request(httpServer)

@@ -4,8 +4,10 @@ import type { Repository } from 'typeorm';
 import { seedRedirectionLinks } from '../../../database/seeds/redirection-links.seed';
 import { RedirectionLink } from '../entities/redirection-link.entity';
 import type {
+  CreateRedirectionLinkInput,
   IRedirectionLinkRepository,
   RedirectionLinkProjection,
+  UpdateRedirectionLinkInput,
 } from '../interfaces/i-redirection-link.repository';
 
 @Injectable()
@@ -51,5 +53,57 @@ export class RedirectionLinkRepository implements IRedirectionLinkRepository, On
     }));
 
     return { items, total };
+  }
+
+  async create(input: CreateRedirectionLinkInput): Promise<RedirectionLinkProjection> {
+    const entity = this.repository.create({
+      projectName: input.projectName.trim(),
+      url: input.url.trim(),
+      description: input.description.trim(),
+      isActive: true,
+    });
+    const saved = await this.repository.save(entity);
+    return {
+      id: saved.id,
+      projectName: saved.projectName,
+      url: saved.url,
+      description: saved.description,
+    };
+  }
+
+  async update(
+    id: string,
+    input: UpdateRedirectionLinkInput,
+  ): Promise<RedirectionLinkProjection | null> {
+    const existing = await this.repository.findOne({ where: { id } });
+    if (!existing) {
+      return null;
+    }
+
+    if (input.projectName !== undefined) {
+      existing.projectName = input.projectName.trim();
+    }
+    if (input.url !== undefined) {
+      existing.url = input.url.trim();
+    }
+    if (input.description !== undefined) {
+      existing.description = input.description.trim();
+    }
+    if (input.isActive !== undefined) {
+      existing.isActive = input.isActive;
+    }
+
+    const saved = await this.repository.save(existing);
+    return {
+      id: saved.id,
+      projectName: saved.projectName,
+      url: saved.url,
+      description: saved.description,
+    };
+  }
+
+  async deleteById(id: string): Promise<boolean> {
+    const result = await this.repository.delete({ id });
+    return (result.affected ?? 0) > 0;
   }
 }

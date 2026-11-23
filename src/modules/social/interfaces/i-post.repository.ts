@@ -114,10 +114,12 @@ export interface IPostRepository {
   findViewerReactionsByPostIds?(
     postIds: ReadonlyArray<string>,
     deviceId: string,
+    userAccountId?: string | null,
   ): Promise<Map<string, ReactionType[]>>;
   findBookmarkedPostIds?(
     postIds: ReadonlyArray<string>,
     deviceId: string,
+    userAccountId?: string | null,
   ): Promise<Set<string>>;
   toggleBookmark?(
     postId: string,

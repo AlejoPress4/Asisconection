@@ -382,25 +382,38 @@ export class PostRepository implements IPostRepository, OnModuleInit {
   async findViewerReactionsByPostIds(
     postIds: ReadonlyArray<string>,
     deviceId: string,
+    userAccountId?: string | null,
   ): Promise<Map<string, ReactionType[]>> {
     const result = new Map<string, ReactionType[]>();
     if (postIds.length === 0) {
       return result;
     }
 
-    const rows = await this.dataSource.query<Array<{ post_id: string; type: string }>>(
-      `
-        SELECT post_id, type
-        FROM reactions
-        WHERE post_id = ANY($1::uuid[]) AND device_id = $2::uuid
-      `,
-      [postIds, deviceId],
-    );
+    const rows = userAccountId
+      ? await this.dataSource.query<Array<{ post_id: string; type: string }>>(
+          `
+            SELECT DISTINCT post_id, type
+            FROM reactions
+            WHERE post_id = ANY($1::uuid[])
+              AND (device_id = $2::uuid OR user_account_id = $3::uuid)
+          `,
+          [postIds, deviceId, userAccountId],
+        )
+      : await this.dataSource.query<Array<{ post_id: string; type: string }>>(
+          `
+            SELECT post_id, type
+            FROM reactions
+            WHERE post_id = ANY($1::uuid[]) AND device_id = $2::uuid
+          `,
+          [postIds, deviceId],
+        );
 
     for (const row of rows) {
       if (isReactionType(row.type)) {
         const list = result.get(row.post_id) ?? [];
-        list.push(row.type);
+        if (!list.includes(row.type)) {
+          list.push(row.type);
+        }
         result.set(row.post_id, list);
       }
     }
@@ -411,20 +424,31 @@ export class PostRepository implements IPostRepository, OnModuleInit {
   async findBookmarkedPostIds(
     postIds: ReadonlyArray<string>,
     deviceId: string,
+    userAccountId?: string | null,
   ): Promise<Set<string>> {
     const result = new Set<string>();
     if (postIds.length === 0) {
       return result;
     }
 
-    const rows = await this.dataSource.query<Array<{ post_id: string }>>(
-      `
-        SELECT post_id
-        FROM post_bookmarks
-        WHERE post_id = ANY($1::uuid[]) AND device_id = $2::uuid
-      `,
-      [postIds, deviceId],
-    );
+    const rows = userAccountId
+      ? await this.dataSource.query<Array<{ post_id: string }>>(
+          `
+            SELECT DISTINCT post_id
+            FROM post_bookmarks
+            WHERE post_id = ANY($1::uuid[])
+              AND (device_id = $2::uuid OR user_account_id = $3::uuid)
+          `,
+          [postIds, deviceId, userAccountId],
+        )
+      : await this.dataSource.query<Array<{ post_id: string }>>(
+          `
+            SELECT post_id
+            FROM post_bookmarks
+            WHERE post_id = ANY($1::uuid[]) AND device_id = $2::uuid
+          `,
+          [postIds, deviceId],
+        );
 
     for (const row of rows) {
       result.add(row.post_id);
@@ -439,11 +463,18 @@ export class PostRepository implements IPostRepository, OnModuleInit {
     userAccountId: string | null,
   ): Promise<boolean> {
     const bookmarkRepo = this.dataSource.getRepository(PostBookmark);
-    const existing = await bookmarkRepo.findOne({
-      where: { postId, deviceId },
-    });
+    const existing = userAccountId
+      ? await bookmarkRepo.find({
+          where: [
+            { postId, userAccountId },
+            { postId, deviceId },
+          ],
+        })
+      : await bookmarkRepo.find({
+          where: { postId, deviceId },
+        });
 
-    if (existing) {
+    if (existing.length > 0) {
       await bookmarkRepo.remove(existing);
       return false;
     }
@@ -544,10 +575,13 @@ export class PostRepository implements IPostRepository, OnModuleInit {
 
     const rows = await this.dataSource.query<RawCommentCountRow[]>(
       `
-        SELECT post_id, COUNT(*)::int AS total
-        FROM comments
-        WHERE status = $2::"public"."moderation_status_enum" AND post_id = ANY($1::uuid[])
-        GROUP BY post_id
+        SELECT c.post_id, COUNT(*)::int AS total
+        FROM comments c
+        LEFT JOIN comments parent_c ON parent_c.id = c.parent_id
+        WHERE c.status = $2::"public"."moderation_status_enum"
+          AND c.post_id = ANY($1::uuid[])
+          AND (c.parent_id IS NULL OR parent_c.status = $2::"public"."moderation_status_enum")
+        GROUP BY c.post_id
       `,
       [postIds, ModerationStatus.APPROVED],
     );
@@ -599,10 +633,13 @@ export class PostRepository implements IPostRepository, OnModuleInit {
             ds.role_tag,
             ROW_NUMBER() OVER (PARTITION BY c.post_id ORDER BY c.created_at DESC) AS rn
           FROM comments c
+          LEFT JOIN comments parent_c ON parent_c.id = c.parent_id
           LEFT JOIN device_sessions ds ON ds.id = c.device_id
           LEFT JOIN user_accounts ua ON ua.id = c.user_account_id
           LEFT JOIN actors a ON a.user_account_id = c.user_account_id
-          WHERE c.status = $2::"public"."moderation_status_enum" AND c.post_id = ANY($1::uuid[])
+          WHERE c.status = $2::"public"."moderation_status_enum"
+            AND c.post_id = ANY($1::uuid[])
+            AND (c.parent_id IS NULL OR parent_c.status = $2::"public"."moderation_status_enum")
         ) AS ranked
         WHERE ranked.rn <= $3
         ORDER BY ranked.created_at DESC

@@ -109,11 +109,26 @@ export class ActorProfileResponseDto {
   updated_at!: string;
 }
 
+export const ALLOWED_ACTOR_PRIMARY_ROLES = [
+  'ACUDIENTE',
+  'VOLUNTARIO',
+  'INVERSOR',
+  'BENEFICIARIO',
+] as const;
+
 export class UpdateActorProfileDto {
-  @ApiPropertyOptional({ maxLength: 40, example: 'ACUDIENTE' })
+  @ApiPropertyOptional({
+    enum: ALLOWED_ACTOR_PRIMARY_ROLES,
+    maxLength: 40,
+    example: 'ACUDIENTE',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(40)
+  @IsIn(ALLOWED_ACTOR_PRIMARY_ROLES, {
+    message:
+      'primary_role debe ser un rol comunitario permitido (ACUDIENTE, VOLUNTARIO, INVERSOR o BENEFICIARIO).',
+  })
   primary_role?: string;
 
   @ApiPropertyOptional({ maxLength: 80, example: 'María' })

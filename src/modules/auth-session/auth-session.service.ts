@@ -75,6 +75,7 @@ export class AuthSessionService {
       rol: effectiveRol,
       externalRoles: externalUser.roles,
       existingAnonymousSessionId,
+      isNewRegistration: true,
       signSessionToken: ({ sessionId, userAccountId, role }) =>
         this.sessionTokenService.sign({
           sub: sessionId,

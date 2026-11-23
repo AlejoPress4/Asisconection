@@ -15,6 +15,7 @@ export interface SyncUserSessionInput {
   readonly rol: string;
   readonly externalRoles?: ReadonlyArray<string>;
   readonly existingAnonymousSessionId?: string;
+  readonly isNewRegistration?: boolean;
   readonly signSessionToken: (params: IssueSessionTokenParams) => string;
 }
 

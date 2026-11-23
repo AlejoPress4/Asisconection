@@ -1,4 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 
 export class FaqItemDto {
@@ -16,6 +17,77 @@ export class FaqItemDto {
 
   @ApiProperty({ example: 'Inscripciones' })
   category!: string;
+}
+
+export class CreateFaqDto {
+  @ApiProperty({
+    description: 'Pregunta frecuente de la base de conocimiento',
+    example: '¿Cómo inscribo a un beneficiario en SUMA 21?',
+    maxLength: 300,
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(300)
+  question!: string;
+
+  @ApiProperty({
+    description: 'Respuesta oficial verificada',
+    example:
+      'Puedes acercarte a la sede principal o comunicarte por el canal oficial de WhatsApp.',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(3000)
+  answer!: string;
+
+  @ApiProperty({
+    description: 'Categoría temática de la pregunta frecuente',
+    example: 'Inscripciones',
+    maxLength: 60,
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(60)
+  category!: string;
+}
+
+export class UpdateFaqDto {
+  @ApiPropertyOptional({
+    description: 'Pregunta frecuente actualizada',
+    maxLength: 300,
+  })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(300)
+  question?: string;
+
+  @ApiPropertyOptional({
+    description: 'Respuesta oficial actualizada',
+  })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(3000)
+  answer?: string;
+
+  @ApiPropertyOptional({
+    description: 'Categoría temática actualizada',
+    maxLength: 60,
+  })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(60)
+  category?: string;
+}
+
+export class DeletedFaqResponseDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ example: true })
+  deleted!: boolean;
 }
 
 export class FaqPageDto {

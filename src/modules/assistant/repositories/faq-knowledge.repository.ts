@@ -3,8 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import type { Repository } from 'typeorm';
 import { FaqKnowledge } from '../entities/faq-knowledge.entity';
 import type {
+  CreateFaqKnowledgeInput,
   FaqKnowledgeProjection,
   IFaqKnowledgeRepository,
+  UpdateFaqKnowledgeInput,
 } from '../interfaces/i-faq-knowledge.repository';
 
 @Injectable()
@@ -43,5 +45,53 @@ export class FaqKnowledgeRepository implements IFaqKnowledgeRepository {
     }));
 
     return { items, total };
+  }
+
+  async create(input: CreateFaqKnowledgeInput): Promise<FaqKnowledgeProjection> {
+    const entity = this.repository.create({
+      question: input.question.trim(),
+      answer: input.answer.trim(),
+      category: input.category.trim(),
+    });
+    const saved = await this.repository.save(entity);
+    return {
+      id: saved.id,
+      question: saved.question,
+      answer: saved.answer,
+      category: saved.category,
+    };
+  }
+
+  async update(
+    id: string,
+    input: UpdateFaqKnowledgeInput,
+  ): Promise<FaqKnowledgeProjection | null> {
+    const existing = await this.repository.findOne({ where: { id } });
+    if (!existing) {
+      return null;
+    }
+
+    if (input.question !== undefined) {
+      existing.question = input.question.trim();
+    }
+    if (input.answer !== undefined) {
+      existing.answer = input.answer.trim();
+    }
+    if (input.category !== undefined) {
+      existing.category = input.category.trim();
+    }
+
+    const saved = await this.repository.save(existing);
+    return {
+      id: saved.id,
+      question: saved.question,
+      answer: saved.answer,
+      category: saved.category,
+    };
+  }
+
+  async deleteById(id: string): Promise<boolean> {
+    const result = await this.repository.delete({ id });
+    return (result.affected ?? 0) > 0;
   }
 }

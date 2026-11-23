@@ -155,8 +155,8 @@ export class ActorRepository implements IActorRepository, OnModuleInit {
     const existing = await this.connectionRepo
       .createQueryBuilder('ac')
       .where(
-        '(ac.requester_actor_id = :requesterActorId AND ac.receiver_actor_id = :receiverActorId) OR (ac.requester_actor_id = :receiverActorId AND ac.receiver_actor_id = :requesterActorId)',
-        { requesterActorId, receiverActorId },
+        '(ac.requester_actor_id = :requesterActorId AND ac.receiver_actor_id = :receiverActorId) OR (ac.requester_actor_id = :receiverActorId AND ac.receiver_actor_id = :requesterActorId AND ac.status = :blockedStatus)',
+        { requesterActorId, receiverActorId, blockedStatus: 'BLOCKED' },
       )
       .getOne();
 
@@ -237,12 +237,24 @@ export class ActorRepository implements IActorRepository, OnModuleInit {
     actorAId: string,
     actorBId: string,
   ): Promise<ActorConnection | null> {
+    const outgoing = await this.connectionRepo
+      .createQueryBuilder('ac')
+      .where('ac.requester_actor_id = :actorAId AND ac.receiver_actor_id = :actorBId', {
+        actorAId,
+        actorBId,
+      })
+      .getOne();
+
+    if (outgoing) {
+      return outgoing;
+    }
+
     return this.connectionRepo
       .createQueryBuilder('ac')
-      .where(
-        '(ac.requester_actor_id = :actorAId AND ac.receiver_actor_id = :actorBId) OR (ac.requester_actor_id = :actorBId AND ac.receiver_actor_id = :actorAId)',
-        { actorAId, actorBId },
-      )
+      .where('ac.requester_actor_id = :actorBId AND ac.receiver_actor_id = :actorAId', {
+        actorAId,
+        actorBId,
+      })
       .getOne();
   }
 

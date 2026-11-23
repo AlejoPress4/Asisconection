@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { AssistantController } from './assistant.controller';
+import { AdminFaqsController, AssistantController } from './assistant.controller';
 import { AssistantService } from './assistant.service';
 import { FaqKnowledge } from './entities/faq-knowledge.entity';
 import {
@@ -13,7 +13,7 @@ import { FaqKnowledgeRepository } from './repositories/faq-knowledge.repository'
 
 @Module({
   imports: [TypeOrmModule.forFeature([FaqKnowledge])],
-  controllers: [AssistantController],
+  controllers: [AssistantController, AdminFaqsController],
   providers: [
     {
       provide: FAQ_KNOWLEDGE_REPOSITORY,

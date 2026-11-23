@@ -53,6 +53,7 @@ export class CommentRepository implements ICommentRepository {
   }
 
   async deleteById(id: string): Promise<boolean> {
+    await this.repository.delete({ parentId: id });
     const result = await this.repository.delete({ id });
     return (result.affected ?? 0) > 0;
   }
@@ -80,6 +81,7 @@ export class CommentRepository implements ICommentRepository {
             ds.role_tag,
             COALESCE(cr.likes_count, 0)::int AS likes_count
           FROM comments c
+          LEFT JOIN comments parent_c ON parent_c.id = c.parent_id
           LEFT JOIN device_sessions ds ON ds.id = c.device_id
           LEFT JOIN user_accounts ua ON ua.id = c.user_account_id
           LEFT JOIN actors a ON a.user_account_id = c.user_account_id
@@ -90,6 +92,7 @@ export class CommentRepository implements ICommentRepository {
           ) cr ON cr.comment_id = c.id
           WHERE c.post_id = $1::uuid
             AND c.status = $2::"public"."moderation_status_enum"
+            AND (c.parent_id IS NULL OR parent_c.status = $2::"public"."moderation_status_enum")
           ORDER BY c.created_at ASC
           OFFSET $3
           LIMIT $4
@@ -100,8 +103,10 @@ export class CommentRepository implements ICommentRepository {
         `
           SELECT COUNT(*)::int AS total
           FROM comments c
+          LEFT JOIN comments parent_c ON parent_c.id = c.parent_id
           WHERE c.post_id = $1::uuid
             AND c.status = $2::"public"."moderation_status_enum"
+            AND (c.parent_id IS NULL OR parent_c.status = $2::"public"."moderation_status_enum")
         `,
         [postId, ModerationStatus.APPROVED],
       ),

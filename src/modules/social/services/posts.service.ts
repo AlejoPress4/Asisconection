@@ -166,10 +166,18 @@ export class PostsService {
       this.postRepository.countApprovedCommentsByPostIds(postIds),
       this.postRepository.findRecentApprovedComments(postIds, 3),
       viewerSession && this.postRepository.findViewerReactionsByPostIds
-        ? this.postRepository.findViewerReactionsByPostIds(postIds, viewerSession.sessionId)
+        ? this.postRepository.findViewerReactionsByPostIds(
+            postIds,
+            viewerSession.sessionId,
+            viewerSession.userAccountId,
+          )
         : Promise.resolve(undefined),
       viewerSession && this.postRepository.findBookmarkedPostIds
-        ? this.postRepository.findBookmarkedPostIds(postIds, viewerSession.sessionId)
+        ? this.postRepository.findBookmarkedPostIds(
+            postIds,
+            viewerSession.sessionId,
+            viewerSession.userAccountId,
+          )
         : Promise.resolve(undefined),
     ]);
 
@@ -235,12 +243,13 @@ export class PostsService {
         'Las publicaciones propias están disponibles únicamente para usuarios registrados.',
       );
     }
-    return this.listApproved(query, session.userAccountId);
+    return this.listApproved(query, session.userAccountId, session);
   }
 
   async listActorApprovedPosts(
     actorId: string,
     query: PaginationQueryDto,
+    viewerSession?: SessionContext,
   ): Promise<PostsPageDto> {
     if (!this.postRepository.findUserAccountIdByActorId) {
       throw new NotFoundException('El perfil solicitado no existe.');
@@ -249,7 +258,7 @@ export class PostsService {
     if (!userAccountId) {
       throw new NotFoundException('El perfil solicitado no existe.');
     }
-    return this.listApproved(query, userAccountId);
+    return this.listApproved(query, userAccountId, viewerSession);
   }
 
   async listApprovedComments(
@@ -310,9 +319,30 @@ export class PostsService {
     session: SessionContext,
     dto: CreatePostDto,
   ): Promise<PendingSubmissionResponseDto> {
-    const categoryExists = await this.categoryRepository.existsById(dto.category_id);
+    const category = this.categoryRepository.findCategoryById
+      ? await this.categoryRepository.findCategoryById(dto.category_id)
+      : null;
+    const categoryExists =
+      category !== null || (await this.categoryRepository.existsById(dto.category_id));
     if (!categoryExists) {
       throw new NotFoundException('La categoría temática indicada no existe.');
+    }
+
+    if (category) {
+      const normalizedName = category.name.trim().toLowerCase();
+      const normalizedTopic = (category.mainTopic ?? '').trim().toLowerCase();
+      const isInstitutionalCategory =
+        normalizedName.includes('noticias') ||
+        normalizedName.includes('avisos') ||
+        normalizedTopic.includes('institucional') ||
+        normalizedTopic.includes('noticias') ||
+        normalizedTopic.includes('avisos');
+
+      if (isInstitutionalCategory && !this.isPrivilegedModerator(session)) {
+        throw new ForbiddenException(
+          'Solo administradores y moderadores pueden publicar en la categoría institucional de Noticias y Avisos.',
+        );
+      }
     }
 
     const mediaUrls =
@@ -348,10 +378,8 @@ export class PostsService {
     let initialStatus: ModerationStatus;
     if (filterEvaluation?.status === ModerationStatus.REJECTED) {
       initialStatus = ModerationStatus.REJECTED;
-    } else if (this.isPrivilegedModerator(session)) {
-      initialStatus = ModerationStatus.APPROVED;
     } else {
-      initialStatus = ModerationStatus.PENDING;
+      initialStatus = ModerationStatus.APPROVED;
     }
     const rejectionReason = filterEvaluation?.rejectionReason ?? null;
 
@@ -433,10 +461,8 @@ export class PostsService {
     let nextStatus: ModerationStatus;
     if (filterEvaluation?.status === ModerationStatus.REJECTED) {
       nextStatus = ModerationStatus.REJECTED;
-    } else if (this.isPrivilegedModerator(session)) {
-      nextStatus = ModerationStatus.APPROVED;
     } else {
-      nextStatus = ModerationStatus.PENDING;
+      nextStatus = ModerationStatus.APPROVED;
     }
     const rejectionReason = filterEvaluation?.rejectionReason ?? null;
 

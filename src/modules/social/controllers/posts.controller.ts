@@ -211,6 +211,7 @@ export class PostsController {
   }
 
   @Get('actors/:id/posts')
+  @UseGuards(OptionalDeviceSessionGuard)
   @ApiOperation({
     summary: 'Lista paginada de publicaciones aprobadas de un perfil Actor específico',
   })
@@ -225,8 +226,9 @@ export class PostsController {
   async listActorPosts(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Query() query: PaginationQueryDto,
+    @CurrentSession() optionalSession?: SessionContext,
   ): Promise<PostsPageDto> {
-    return this.postsService.listActorApprovedPosts(id, query);
+    return this.postsService.listActorApprovedPosts(id, query, optionalSession);
   }
 
   @Post('posts')

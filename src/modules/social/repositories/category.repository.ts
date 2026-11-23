@@ -38,4 +38,18 @@ export class CategoryRepository implements ICategoryRepository {
     const count = await this.repository.count({ where: { id } });
     return count > 0;
   }
+
+  async findCategoryById(id: string): Promise<CategoryProjection | null> {
+    const entity = await this.repository.findOne({ where: { id } });
+    if (!entity) {
+      return null;
+    }
+    return {
+      id: entity.id,
+      name: entity.name,
+      mainTopic: entity.mainTopic ?? 'General',
+      description: entity.description,
+      coverImageUrl: entity.coverImageUrl ?? null,
+    };
+  }
 }
