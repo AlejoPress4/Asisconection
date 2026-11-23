@@ -6,6 +6,7 @@ import { PostsController } from './controllers/posts.controller';
 import { Category } from './entities/category.entity';
 import { CommentReaction } from './entities/comment-reaction.entity';
 import { Comment } from './entities/comment.entity';
+import { PostBookmark } from './entities/post-bookmark.entity';
 import { PostMedia } from './entities/post-media.entity';
 import { Post } from './entities/post.entity';
 import { Reaction } from './entities/reaction.entity';
@@ -22,7 +23,15 @@ import { PostsService } from './services/posts.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Category, Post, PostMedia, Comment, Reaction, CommentReaction]),
+    TypeOrmModule.forFeature([
+      Category,
+      Post,
+      PostMedia,
+      PostBookmark,
+      Comment,
+      Reaction,
+      CommentReaction,
+    ]),
     forwardRef(() => ModerationModule),
   ],
   controllers: [CategoriesController, PostsController],

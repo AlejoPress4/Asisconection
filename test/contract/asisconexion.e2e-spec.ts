@@ -40,6 +40,8 @@ import type { UserAccount } from '../../src/modules/auth-session/entities/user-a
 import {
   ACTOR_REPOSITORY,
   type IActorRepository,
+  type ListConnectionsFilter,
+  type SearchActorsFilter,
   type UpdateActorFields,
 } from '../../src/modules/auth-session/interfaces/i-actor.repository';
 import {
@@ -61,6 +63,8 @@ import {
   type IContentRule,
 } from '../../src/modules/moderation/interfaces/i-content-rule.interface';
 import {
+  type ContentReportRecord,
+  type CreateContentReportInput,
   type IModerationRepository,
   MODERATION_REPOSITORY,
 } from '../../src/modules/moderation/interfaces/i-moderation.repository';
@@ -83,8 +87,10 @@ import {
   type ICommentRepository,
 } from '../../src/modules/social/interfaces/i-comment.repository';
 import {
+  type FindApprovedPostsOptions,
   type IPostRepository,
   POST_REPOSITORY,
+  type UpdatePostData,
 } from '../../src/modules/social/interfaces/i-post.repository';
 import {
   type IReactionRepository,
@@ -123,6 +129,8 @@ class InMemoryPersistenceStore
   readonly comments = new Map<string, Comment>();
   readonly reactions = new Set<string>();
   readonly commentReactions = new Set<string>();
+  readonly bookmarks = new Set<string>();
+  readonly contentReports = new Map<string, ContentReportRecord>();
 
   findByIdentity(
     externalUserId: number | null,
@@ -215,9 +223,9 @@ class InMemoryPersistenceStore
     return Promise.resolve(null);
   }
 
-  findById(id: string): Promise<(Actor & Comment) | null> {
-    const found = this.actors.get(id) ?? this.comments.get(id) ?? null;
-    return Promise.resolve(found as (Actor & Comment) | null);
+  findById(id: string): Promise<(Actor & Comment & Post) | null> {
+    const found = this.actors.get(id) ?? this.comments.get(id) ?? this.posts.get(id) ?? null;
+    return Promise.resolve(found as (Actor & Comment & Post) | null);
   }
 
   async ensureForUserAccount(userAccountId: string, defaultRole: string): Promise<Actor> {
@@ -262,16 +270,20 @@ class InMemoryPersistenceStore
     return updated;
   }
 
-  createConnection(requesterActorId: string, receiverActorId: string): Promise<ActorConnection> {
+  createConnection(
+    requesterActorId: string,
+    receiverActorId: string,
+    initialStatus: ActorConnectionStatus = 'PENDING',
+  ): Promise<ActorConnection> {
     const connection: ActorConnection = {
       id: randomUUID(),
       requesterActorId,
       requesterActor: this.actors.get(requesterActorId)!,
       receiverActorId,
       receiverActor: this.actors.get(receiverActorId)!,
-      status: 'PENDING',
+      status: initialStatus,
       requestedAt: new Date(),
-      acceptedAt: null,
+      acceptedAt: initialStatus === 'ACCEPTED' ? new Date() : null,
     };
     this.actorConnections.set(connection.id, connection);
     return Promise.resolve(connection);
@@ -279,6 +291,65 @@ class InMemoryPersistenceStore
 
   findConnectionById(connectionId: string): Promise<ActorConnection | null> {
     return Promise.resolve(this.actorConnections.get(connectionId) ?? null);
+  }
+
+  findConnectionBetweenActors(actorAId: string, actorBId: string): Promise<ActorConnection | null> {
+    for (const c of this.actorConnections.values()) {
+      if (
+        (c.requesterActorId === actorAId && c.receiverActorId === actorBId) ||
+        (c.requesterActorId === actorBId && c.receiverActorId === actorAId)
+      ) {
+        return Promise.resolve(c);
+      }
+    }
+    return Promise.resolve(null);
+  }
+
+  deleteConnection(connectionId: string): Promise<boolean> {
+    return Promise.resolve(this.actorConnections.delete(connectionId));
+  }
+
+  searchActors(filter: SearchActorsFilter): Promise<{ items: Actor[]; total: number }> {
+    const term = filter.search?.trim().toLowerCase();
+    const role = filter.role?.trim().toUpperCase();
+    const list = Array.from(this.actors.values()).filter((a) => {
+      if (role && a.primaryRole.toUpperCase() !== role) {
+        return false;
+      }
+      if (!term) {
+        return true;
+      }
+      const uname = a.userAccount?.username.toLowerCase() ?? '';
+      const fnames = a.firstNames?.toLowerCase() ?? '';
+      const lnames = a.lastNames?.toLowerCase() ?? '';
+      const bio = a.shortBio?.toLowerCase() ?? '';
+      return (
+        uname.includes(term) ||
+        fnames.includes(term) ||
+        lnames.includes(term) ||
+        bio.includes(term)
+      );
+    });
+    return Promise.resolve({
+      items: list.slice(filter.skip, filter.skip + filter.take),
+      total: list.length,
+    });
+  }
+
+  listFollowers(actorId: string, skip: number, take: number) {
+    const list = Array.from(this.actorConnections.values())
+      .filter((c) => c.receiverActorId === actorId && c.status === 'ACCEPTED')
+      .map((c) => this.actors.get(c.requesterActorId)!)
+      .filter(Boolean);
+    return Promise.resolve({ items: list.slice(skip, skip + take), total: list.length });
+  }
+
+  listFollowing(actorId: string, skip: number, take: number) {
+    const list = Array.from(this.actorConnections.values())
+      .filter((c) => c.requesterActorId === actorId && c.status === 'ACCEPTED')
+      .map((c) => this.actors.get(c.receiverActorId)!)
+      .filter(Boolean);
+    return Promise.resolve({ items: list.slice(skip, skip + take), total: list.length });
   }
 
   updateConnectionStatus(
@@ -298,10 +369,25 @@ class InMemoryPersistenceStore
     return Promise.resolve(updated);
   }
 
-  listConnectionsForActor(actorId: string, skip: number, take: number) {
-    const list = Array.from(this.actorConnections.values()).filter(
-      (c) => c.requesterActorId === actorId || c.receiverActorId === actorId,
-    );
+  listConnectionsForActor(
+    actorId: string,
+    skip: number,
+    take: number,
+    filter?: ListConnectionsFilter,
+  ) {
+    const direction = filter?.direction ?? 'all';
+    const list = Array.from(this.actorConnections.values()).filter((c) => {
+      if (filter?.status && c.status !== filter.status) {
+        return false;
+      }
+      if (direction === 'incoming') {
+        return c.receiverActorId === actorId;
+      }
+      if (direction === 'outgoing') {
+        return c.requesterActorId === actorId;
+      }
+      return c.requesterActorId === actorId || c.receiverActorId === actorId;
+    });
     return Promise.resolve({ items: list.slice(skip, skip + take), total: list.length });
   }
 
@@ -357,10 +443,48 @@ class InMemoryPersistenceStore
     return Promise.resolve(this.categories.some((c) => c.id === id));
   }
 
-  findApprovedPaginated(categoryId: string | undefined, skip: number, take: number) {
-    const approved = Array.from(this.posts.values()).filter(
-      (p) => p.status === ModerationStatus.APPROVED && (!categoryId || p.categoryId === categoryId),
-    );
+  findApprovedPaginated(
+    categoryId: string | undefined,
+    skip: number,
+    take: number,
+    userAccountId?: string,
+    options?: FindApprovedPostsOptions,
+  ) {
+    let connectedUserAccountIds: Set<string> | undefined;
+    if (options?.feed === 'following' && options.followerUserAccountId) {
+      connectedUserAccountIds = new Set<string>([options.followerUserAccountId]);
+      const myActor = Array.from(this.actors.values()).find(
+        (a) => a.userAccountId === options.followerUserAccountId,
+      );
+      if (myActor) {
+        for (const conn of this.actorConnections.values()) {
+          if (conn.status === 'ACCEPTED') {
+            if (conn.requesterActorId === myActor.id) {
+              const rec = this.actors.get(conn.receiverActorId);
+              if (rec) connectedUserAccountIds.add(rec.userAccountId);
+            } else if (conn.receiverActorId === myActor.id) {
+              const req = this.actors.get(conn.requesterActorId);
+              if (req) connectedUserAccountIds.add(req.userAccountId);
+            }
+          }
+        }
+      }
+    }
+
+    const searchLower = options?.search?.trim().toLowerCase();
+    const approved = Array.from(this.posts.values()).filter((p) => {
+      if (p.status !== ModerationStatus.APPROVED) return false;
+      if (categoryId && p.categoryId !== categoryId) return false;
+      if (userAccountId && p.userAccountId !== userAccountId) return false;
+      if (searchLower && !p.content.toLowerCase().includes(searchLower)) return false;
+      if (
+        connectedUserAccountIds &&
+        (!p.userAccountId || !connectedUserAccountIds.has(p.userAccountId))
+      ) {
+        return false;
+      }
+      return true;
+    });
     const slice = approved.slice(skip, skip + take).map((p) => {
       const session = this.sessions.get(p.deviceId);
       const user = p.userAccountId ? this.users.get(p.userAccountId) : undefined;
@@ -379,6 +503,153 @@ class InMemoryPersistenceStore
       };
     });
     return Promise.resolve({ items: slice, total: approved.length });
+  }
+
+  findApprovedById(postId: string) {
+    const p = this.posts.get(postId);
+    if (!p || p.status !== ModerationStatus.APPROVED) {
+      return Promise.resolve(null);
+    }
+    const session = this.sessions.get(p.deviceId);
+    const user = p.userAccountId ? this.users.get(p.userAccountId) : undefined;
+    return Promise.resolve({
+      id: p.id,
+      categoryId: p.categoryId,
+      content: p.content,
+      imageUrl: p.imageUrl,
+      mediaUrls: this.postMedia.get(p.id) ?? [],
+      createdAt: p.createdAt,
+      userAccountId: p.userAccountId,
+      username: user?.username ?? null,
+      rol: user?.rol ?? null,
+      nickname: session?.nickname ?? null,
+      roleTag: session?.roleTag ?? null,
+    });
+  }
+
+  updatePost(postId: string, data: UpdatePostData): Promise<Post | null> {
+    const existing = this.posts.get(postId);
+    if (!existing) {
+      return Promise.resolve(null);
+    }
+    const updated: Post = {
+      ...existing,
+      content: data.content ?? existing.content,
+      imageUrl: data.imageUrl !== undefined ? data.imageUrl : existing.imageUrl,
+      status: data.status,
+      rejectionReason: data.rejectionReason,
+      updatedAt: new Date(),
+    };
+    this.posts.set(postId, updated);
+    if (data.mediaUrls !== undefined) {
+      this.postMedia.set(postId, [...data.mediaUrls]);
+    }
+    return Promise.resolve(updated);
+  }
+
+  deleteById(id: string): Promise<boolean> {
+    if (this.posts.has(id)) {
+      this.posts.delete(id);
+      return Promise.resolve(true);
+    }
+    if (this.comments.has(id)) {
+      this.comments.delete(id);
+      return Promise.resolve(true);
+    }
+    return Promise.resolve(false);
+  }
+
+  findMySubmissionsPaginated(
+    userAccountId: string,
+    status: ModerationStatus | undefined,
+    skip: number,
+    take: number,
+  ) {
+    const list = Array.from(this.posts.values())
+      .filter((p) => p.userAccountId === userAccountId && (!status || p.status === status))
+      .map((p) => ({
+        id: p.id,
+        categoryId: p.categoryId,
+        content: p.content,
+        imageUrl: p.imageUrl,
+        mediaUrls: this.postMedia.get(p.id) ?? [],
+        status: p.status,
+        rejectionReason: p.rejectionReason,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+      }));
+    return Promise.resolve({ items: list.slice(skip, skip + take), total: list.length });
+  }
+
+  findViewerReactionsByPostIds(postIds: ReadonlyArray<string>, deviceId: string) {
+    const map = new Map<string, ReactionType[]>();
+    for (const postId of postIds) {
+      const list: ReactionType[] = [];
+      for (const key of this.reactions.values()) {
+        const [rPostId, rDeviceId, rType] = key.split(':');
+        if (rPostId === postId && rDeviceId === deviceId && rType) {
+          list.push(rType as ReactionType);
+        }
+      }
+      map.set(postId, list);
+    }
+    return Promise.resolve(map);
+  }
+
+  findBookmarkedPostIds(postIds: ReadonlyArray<string>, deviceId: string) {
+    const set = new Set<string>();
+    for (const postId of postIds) {
+      if (this.bookmarks.has(`${postId}:${deviceId}`)) {
+        set.add(postId);
+      }
+    }
+    return Promise.resolve(set);
+  }
+
+  toggleBookmark(postId: string, deviceId: string): Promise<boolean> {
+    const key = `${postId}:${deviceId}`;
+    if (this.bookmarks.has(key)) {
+      this.bookmarks.delete(key);
+      return Promise.resolve(false);
+    }
+    this.bookmarks.add(key);
+    return Promise.resolve(true);
+  }
+
+  findBookmarkedPostsPaginated(
+    deviceId: string,
+    _userAccountId: string | null,
+    skip: number,
+    take: number,
+  ) {
+    const bookmarkedIds = new Set<string>();
+    for (const key of this.bookmarks.values()) {
+      const [postId, bDeviceId] = key.split(':');
+      if (postId && bDeviceId === deviceId) {
+        bookmarkedIds.add(postId);
+      }
+    }
+    const list = Array.from(this.posts.values()).filter(
+      (p) => p.status === ModerationStatus.APPROVED && bookmarkedIds.has(p.id),
+    );
+    const items = list.slice(skip, skip + take).map((p) => {
+      const session = this.sessions.get(p.deviceId);
+      const user = p.userAccountId ? this.users.get(p.userAccountId) : undefined;
+      return {
+        id: p.id,
+        categoryId: p.categoryId,
+        content: p.content,
+        imageUrl: p.imageUrl,
+        mediaUrls: this.postMedia.get(p.id) ?? [],
+        createdAt: p.createdAt,
+        userAccountId: p.userAccountId,
+        username: user?.username ?? null,
+        rol: user?.rol ?? null,
+        nickname: session?.nickname ?? null,
+        roleTag: session?.roleTag ?? null,
+      };
+    });
+    return Promise.resolve({ items, total: list.length });
   }
 
   countReactionsByPostIds(postIds: ReadonlyArray<string>) {
@@ -705,6 +976,85 @@ class InMemoryPersistenceStore
     });
   }
 
+  targetExistsAndApproved(targetType: 'POST' | 'COMMENT', targetId: string): Promise<boolean> {
+    if (targetType === 'POST') {
+      const post = this.posts.get(targetId);
+      return Promise.resolve(Boolean(post && post.status === ModerationStatus.APPROVED));
+    }
+    const comment = this.comments.get(targetId);
+    return Promise.resolve(Boolean(comment && comment.status === ModerationStatus.APPROVED));
+  }
+
+  hasOpenReportByDevice(
+    targetType: 'POST' | 'COMMENT',
+    targetId: string,
+    reporterDeviceId: string,
+  ): Promise<boolean> {
+    for (const r of this.contentReports.values()) {
+      if (
+        r.targetType === targetType &&
+        r.targetId === targetId &&
+        r.reporterDeviceId === reporterDeviceId &&
+        r.status === 'OPEN'
+      ) {
+        return Promise.resolve(true);
+      }
+    }
+    return Promise.resolve(false);
+  }
+
+  createContentReport(input: CreateContentReportInput): Promise<ContentReportRecord> {
+    const record: ContentReportRecord = {
+      id: randomUUID(),
+      targetType: input.targetType,
+      targetId: input.targetId,
+      targetContentPreview:
+        input.targetType === 'POST'
+          ? (this.posts.get(input.targetId)?.content ?? null)
+          : (this.comments.get(input.targetId)?.content ?? null),
+      reason: input.reason,
+      details: input.details,
+      status: 'OPEN',
+      reporterDeviceId: input.reporterDeviceId,
+      reporterUserAccountId: input.reporterUserAccountId,
+      resolvedByUserAccountId: null,
+      resolvedAt: null,
+      createdAt: new Date(),
+    };
+    this.contentReports.set(record.id, record);
+    return Promise.resolve(record);
+  }
+
+  findContentReports(
+    status: 'OPEN' | 'RESOLVED' | 'DISMISSED' | undefined,
+    skip: number,
+    take: number,
+  ) {
+    const list = Array.from(this.contentReports.values()).filter(
+      (r) => !status || r.status === status,
+    );
+    return Promise.resolve({ items: list.slice(skip, skip + take), total: list.length });
+  }
+
+  resolveContentReport(
+    reportId: string,
+    status: 'RESOLVED' | 'DISMISSED',
+    resolvedByUserAccountId: string | null,
+  ): Promise<ContentReportRecord | null> {
+    const existing = this.contentReports.get(reportId);
+    if (!existing) {
+      return Promise.resolve(null);
+    }
+    const updated: ContentReportRecord = {
+      ...existing,
+      status,
+      resolvedByUserAccountId,
+      resolvedAt: new Date(),
+    };
+    this.contentReports.set(reportId, updated);
+    return Promise.resolve(updated);
+  }
+
   findActivePaginated(skip: number, take: number) {
     const links = [
       {
@@ -941,5 +1291,189 @@ describe('Contract & E2E — AsisConexión MVP v2 (US1–US6, Render Auth, Actor
     const feedItems = (approvedFeed.body as { data: Array<{ media_urls: string[] }> }).data;
     expect(feedItems).toHaveLength(1);
     expect(feedItems[0]?.media_urls).toEqual(['https://cdn.asisco.org/fotos/taller1.jpg']);
+  });
+
+  it('ejecuta los 5 nuevos casos de uso de Red Social (CU-01 a CU-05): descubrimiento, feed following, edición RN-02, bookmarks y reportes comunitarios', async () => {
+    const httpServer = app.getHttpServer() as Parameters<typeof request>[0];
+
+    // Registrar dos usuarios para probar grafo social y feed following
+    const userARes = await request(httpServer)
+      .post('/v1/auth/registro')
+      .send({
+        username: 'andres.voluntario',
+        email: 'andres@prueba.com',
+        clave: 'ClaveVoluntario2026',
+        rol: 'VOLUNTARIO',
+        accept_consent: true,
+      })
+      .expect(201);
+    const tokenA = (userARes.body as { device_token: string }).device_token;
+
+    const userBRes = await request(httpServer)
+      .post('/v1/auth/registro')
+      .send({
+        username: 'camila.acudiente',
+        email: 'camila@prueba.com',
+        clave: 'ClaveAcudiente2026',
+        rol: 'ACUDIENTE',
+        accept_consent: true,
+      })
+      .expect(201);
+    const tokenB = (userBRes.body as { device_token: string }).device_token;
+
+    // CU-01: Descubrimiento de perfiles en GET /v1/actors?search=andres
+    const searchActorsRes = await request(httpServer)
+      .get('/v1/actors?search=andres')
+      .expect(200);
+    const foundActors = (searchActorsRes.body as { data: Array<{ id: string; username: string }> })
+      .data;
+    expect(foundActors.length).toBeGreaterThanOrEqual(1);
+    const actorAId = foundActors[0]!.id;
+
+    // Camila sigue a Andrés (auto-aceptado porque require_follow_approval = false por defecto)
+    const connRes = await request(httpServer)
+      .post('/v1/connections')
+      .set('Authorization', `Bearer ${tokenB}`)
+      .send({ receiver_actor_id: actorAId })
+      .expect(201);
+    const connectionId = (connRes.body as { id: string; status: string }).id;
+
+    // Consultar perfil de Andrés autenticado como Camila devuelve viewer_connection
+    const profileARes = await request(httpServer)
+      .get(`/v1/actors/${actorAId}`)
+      .set('Authorization', `Bearer ${tokenB}`)
+      .expect(200);
+    expect(
+      (profileARes.body as { viewer_connection: { connection_id: string; status: string } })
+        .viewer_connection,
+    ).toMatchObject({
+      connection_id: connectionId,
+      status: 'ACCEPTED',
+    });
+
+    // Listar seguidores de Andrés
+    const followersRes = await request(httpServer)
+      .get(`/v1/actors/${actorAId}/followers`)
+      .expect(200);
+    expect((followersRes.body as { meta: { total_items: number } }).meta.total_items).toBe(1);
+
+    // Andrés crea una publicación con hashtag #InclusionAsisco y el ADMIN la aprueba
+    const postARes = await request(httpServer)
+      .post('/v1/posts')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({
+        category_id: '11111111-1111-4111-8111-111111111111',
+        content: 'Jornada de lectura comunitaria #InclusionAsisco con las familias.',
+      })
+      .expect(201);
+    const postAId = (postARes.body as { id: string }).id;
+
+    const adminLogin = await request(httpServer)
+      .post('/v1/auth/login')
+      .send({
+        email: 'admin@asisco.org',
+        clave: 'ClaveAsisco2026',
+        accept_consent: true,
+      })
+      .expect(200);
+    const adminToken = (adminLogin.body as { device_token: string }).device_token;
+
+    await request(httpServer)
+      .patch(`/v1/admin/moderation/posts/${postAId}/status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ status: 'APPROVED' })
+      .expect(200);
+
+    // CU-02 & CU-04: Camila consulta el feed following con búsqueda por hashtag, reacciona y guarda el post en bookmarks
+    const followingFeedRes = await request(httpServer)
+      .get('/v1/posts?feed=following&search=%23InclusionAsisco')
+      .set('Authorization', `Bearer ${tokenB}`)
+      .expect(200);
+    const followingPosts = (followingFeedRes.body as { data: Array<{ id: string }> }).data;
+    expect(followingPosts.map((p) => p.id)).toContain(postAId);
+
+    const toggleBookmarkRes = await request(httpServer)
+      .post(`/v1/posts/${postAId}/bookmarks`)
+      .set('Authorization', `Bearer ${tokenB}`)
+      .expect(200);
+    expect(toggleBookmarkRes.body).toEqual({ post_id: postAId, bookmarked: true });
+
+    const bookmarksPage = await request(httpServer)
+      .get('/v1/bookmarks')
+      .set('Authorization', `Bearer ${tokenB}`)
+      .expect(200);
+    expect((bookmarksPage.body as { data: Array<{ id: string }> }).data[0]?.id).toBe(postAId);
+
+    // Detalle individual de publicación refleja is_bookmarked = true
+    const detailRes = await request(httpServer)
+      .get(`/v1/posts/${postAId}`)
+      .set('Authorization', `Bearer ${tokenB}`)
+      .expect(200);
+    expect((detailRes.body as { is_bookmarked: boolean }).is_bookmarked).toBe(true);
+
+    // CU-05: Camila reporta la publicación y un segundo reporte idéntico devuelve 409 Conflict
+    const reportRes = await request(httpServer)
+      .post('/v1/reports')
+      .set('Authorization', `Bearer ${tokenB}`)
+      .send({
+        target_type: 'POST',
+        target_id: postAId,
+        reason: 'OTHER',
+        details: 'Solicito revisión de datos en la publicación.',
+      })
+      .expect(201);
+    const reportId = (reportRes.body as { id: string; status: string }).id;
+
+    await request(httpServer)
+      .post('/v1/reports')
+      .set('Authorization', `Bearer ${tokenB}`)
+      .send({
+        target_type: 'POST',
+        target_id: postAId,
+        reason: 'OTHER',
+      })
+      .expect(409);
+
+    // El ADMIN lista los reportes abiertos y lo descarta (DISMISSED)
+    const openReportsRes = await request(httpServer)
+      .get('/v1/admin/moderation/reports?status=OPEN')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect((openReportsRes.body as { data: Array<{ id: string }> }).data.map((r) => r.id)).toContain(
+      reportId,
+    );
+
+    await request(httpServer)
+      .patch(`/v1/admin/moderation/reports/${reportId}/resolve`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ status: 'DISMISSED' })
+      .expect(200);
+
+    // CU-03: Andrés edita su publicación -> regresa a PENDING (RN-02) y aparece en /v1/actors/me/submissions
+    const editRes = await request(httpServer)
+      .patch(`/v1/posts/${postAId}`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ content: 'Jornada de lectura comunitaria actualizada.' })
+      .expect(200);
+    expect((editRes.body as { status: string }).status).toBe('PENDING');
+
+    const mySubmissionsRes = await request(httpServer)
+      .get('/v1/actors/me/submissions?status=PENDING')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .expect(200);
+    expect(
+      (mySubmissionsRes.body as { data: Array<{ id: string }> }).data.map((s) => s.id),
+    ).toContain(postAId);
+
+    // Andrés elimina su publicación y Camila deja de seguir a Andrés
+    await request(httpServer)
+      .delete(`/v1/posts/${postAId}`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .expect(200);
+
+    await request(httpServer)
+      .delete(`/v1/connections/${connectionId}`)
+      .set('Authorization', `Bearer ${tokenB}`)
+      .expect(200);
   });
 });

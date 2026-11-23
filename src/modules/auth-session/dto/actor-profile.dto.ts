@@ -10,7 +10,36 @@ import {
   MaxLength,
 } from 'class-validator';
 import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
+import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 import type { ActorConnectionStatus } from '../entities/actor-connection.entity';
+
+export class ViewerConnectionStatusDto {
+  @ApiProperty({ format: 'uuid' })
+  connection_id!: string;
+
+  @ApiProperty({ enum: ['PENDING', 'ACCEPTED', 'BLOCKED'] })
+  status!: ActorConnectionStatus;
+
+  @ApiProperty({ enum: ['OUTGOING', 'INCOMING'] })
+  direction!: 'OUTGOING' | 'INCOMING';
+}
+
+export class ConnectionPeerActorDto {
+  @ApiProperty({ format: 'uuid' })
+  actor_id!: string;
+
+  @ApiProperty({ example: 'maria.acudiente' })
+  username!: string;
+
+  @ApiProperty({ example: 'María Gómez' })
+  display_name!: string;
+
+  @ApiProperty({ example: 'ACUDIENTE' })
+  primary_role!: string;
+
+  @ApiProperty({ nullable: true, format: 'uri' })
+  avatar_url!: string | null;
+}
 
 export class ActorProfileResponseDto {
   @ApiProperty({ format: 'uuid' })
@@ -69,6 +98,9 @@ export class ActorProfileResponseDto {
 
   @ApiPropertyOptional({ example: 0 })
   following_count?: number;
+
+  @ApiPropertyOptional({ type: () => ViewerConnectionStatusDto, nullable: true })
+  viewer_connection?: ViewerConnectionStatusDto | null;
 
   @ApiProperty({ format: 'date-time' })
   created_at!: string;
@@ -168,6 +200,9 @@ export class ActorConnectionResponseDto {
   @ApiProperty({ enum: ['PENDING', 'ACCEPTED', 'BLOCKED'] })
   status!: ActorConnectionStatus;
 
+  @ApiPropertyOptional({ type: () => ConnectionPeerActorDto })
+  peer_actor?: ConnectionPeerActorDto;
+
   @ApiProperty({ format: 'date-time' })
   requested_at!: string;
 
@@ -181,4 +216,54 @@ export class ActorConnectionsPageDto {
 
   @ApiProperty({ type: () => PaginationMetaDto })
   meta!: PaginationMetaDto;
+}
+
+export class ListActorsQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({
+    description: 'Búsqueda por username, nombres, apellidos, biografía o ciudad (si es pública)',
+    maxLength: 80,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  search?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filtrar por rol comunitario principal (ej. ACUDIENTE, VOLUNTARIO)',
+    maxLength: 40,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  role?: string;
+}
+
+export class ActorsPageDto {
+  @ApiProperty({ type: () => [ActorProfileResponseDto] })
+  data!: ActorProfileResponseDto[];
+
+  @ApiProperty({ type: () => PaginationMetaDto })
+  meta!: PaginationMetaDto;
+}
+
+export class ListConnectionsQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: ['PENDING', 'ACCEPTED', 'BLOCKED'] })
+  @IsOptional()
+  @IsString()
+  @IsIn(['PENDING', 'ACCEPTED', 'BLOCKED'])
+  status?: ActorConnectionStatus;
+
+  @ApiPropertyOptional({ enum: ['incoming', 'outgoing', 'all'], default: 'all' })
+  @IsOptional()
+  @IsString()
+  @IsIn(['incoming', 'outgoing', 'all'])
+  direction?: 'incoming' | 'outgoing' | 'all';
+}
+
+export class DeleteConnectionResponseDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ example: true })
+  deleted!: boolean;
 }

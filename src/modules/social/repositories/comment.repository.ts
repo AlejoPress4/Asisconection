@@ -52,6 +52,11 @@ export class CommentRepository implements ICommentRepository {
     return this.repository.findOne({ where: { id } });
   }
 
+  async deleteById(id: string): Promise<boolean> {
+    const result = await this.repository.delete({ id });
+    return (result.affected ?? 0) > 0;
+  }
+
   async findApprovedByPostId(
     postId: string,
     skip: number,

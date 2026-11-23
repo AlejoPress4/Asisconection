@@ -1,16 +1,20 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { DataSource, Repository } from 'typeorm';
 import { ModerationStatus } from '../../../common/enums/moderation-status.enum';
 import { ReactionType } from '../../../common/enums/reaction-type.enum';
+import { PostBookmark } from '../entities/post-bookmark.entity';
 import { PostMedia } from '../entities/post-media.entity';
 import { Post } from '../entities/post.entity';
 import type {
   ApprovedCommentProjection,
   ApprovedPostProjection,
   CreatePostData,
+  FindApprovedPostsOptions,
   IPostRepository,
+  MyPostSubmissionProjection,
   RawAggregatedNotificationRow,
+  UpdatePostData,
 } from '../interfaces/i-post.repository';
 
 interface RawReactionCountRow {
@@ -65,7 +69,9 @@ function isReactionType(value: string): value is ReactionType {
 }
 
 @Injectable()
-export class PostRepository implements IPostRepository {
+export class PostRepository implements IPostRepository, OnModuleInit {
+  private readonly logger = new Logger(PostRepository.name);
+
   constructor(
     @InjectRepository(Post)
     private readonly repository: Repository<Post>,
@@ -73,11 +79,37 @@ export class PostRepository implements IPostRepository {
     private readonly dataSource: DataSource,
   ) {}
 
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.dataSource.query(`
+        CREATE TABLE IF NOT EXISTS "post_bookmarks" (
+          "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
+          "post_id" uuid NOT NULL,
+          "device_id" uuid NOT NULL,
+          "user_account_id" uuid NULL,
+          "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT "PK_post_bookmarks_id" PRIMARY KEY ("id"),
+          CONSTRAINT "UQ_post_bookmarks_post_device" UNIQUE ("post_id", "device_id"),
+          CONSTRAINT "FK_post_bookmarks_post" FOREIGN KEY ("post_id") REFERENCES "posts"("id") ON DELETE CASCADE,
+          CONSTRAINT "FK_post_bookmarks_device" FOREIGN KEY ("device_id") REFERENCES "device_sessions"("id") ON DELETE CASCADE,
+          CONSTRAINT "FK_post_bookmarks_user" FOREIGN KEY ("user_account_id") REFERENCES "user_accounts"("id") ON DELETE CASCADE
+        );
+      `);
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo asegurar la tabla "post_bookmarks": ${
+          error instanceof Error ? error.message : 'error desconocido'
+        }`,
+      );
+    }
+  }
+
   async findApprovedPaginated(
     categoryId: string | undefined,
     skip: number,
     take: number,
     userAccountId?: string,
+    options?: FindApprovedPostsOptions,
   ): Promise<{ items: ApprovedPostProjection[]; total: number }> {
     const qb = this.repository
       .createQueryBuilder('p')
@@ -107,12 +139,44 @@ export class PostRepository implements IPostRepository {
       qb.andWhere('p.userAccountId = :userAccountId', { userAccountId });
     }
 
+    if (options?.search && options.search.trim().length > 0) {
+      qb.andWhere('p.content ILIKE :searchPattern', {
+        searchPattern: `%${options.search.trim()}%`,
+      });
+    }
+
+    if (options?.feed === 'following' && options.followerUserAccountId) {
+      qb.andWhere(
+        `(
+          p.userAccountId = :followerUserAccountId
+          OR p.userAccountId IN (
+            SELECT target_actor.user_account_id
+            FROM actor_connections ac
+            INNER JOIN actors my_actor ON my_actor.user_account_id = :followerUserAccountId
+            INNER JOIN actors target_actor ON (
+              (ac.requester_actor_id = my_actor.id AND target_actor.id = ac.receiver_actor_id)
+              OR (ac.receiver_actor_id = my_actor.id AND target_actor.id = ac.requester_actor_id)
+            )
+            WHERE ac.status = 'ACCEPTED'
+          )
+        )`,
+        { followerUserAccountId: options.followerUserAccountId },
+      );
+    }
+
     const [entities, total] = await qb
       .orderBy('p.createdAt', 'DESC')
       .skip(skip)
       .take(take)
       .getManyAndCount();
 
+    const items = await this.hydrateApprovedPostEntities(entities);
+    return { items, total };
+  }
+
+  private async hydrateApprovedPostEntities(
+    entities: ReadonlyArray<Post>,
+  ): Promise<ApprovedPostProjection[]> {
     const postIds = entities.map((p) => p.id);
     const mediaMap = new Map<string, string[]>();
     const actorMap = new Map<string, { id: string; avatarUrl: string | null }>();
@@ -156,7 +220,7 @@ export class PostRepository implements IPostRepository {
       }
     }
 
-    const items: ApprovedPostProjection[] = entities.map((post) => {
+    return entities.map((post) => {
       const mediaList = mediaMap.get(post.id) ?? (post.imageUrl ? [post.imageUrl] : []);
       const actor = post.userAccountId ? actorMap.get(post.userAccountId) : undefined;
       return {
@@ -175,7 +239,265 @@ export class PostRepository implements IPostRepository {
         roleTag: post.device?.roleTag ?? null,
       };
     });
+  }
 
+  async findApprovedById(postId: string): Promise<ApprovedPostProjection | null> {
+    const entity = await this.repository
+      .createQueryBuilder('p')
+      .leftJoin('p.device', 'ds')
+      .leftJoin('p.userAccount', 'ua')
+      .select([
+        'p.id',
+        'p.categoryId',
+        'p.content',
+        'p.imageUrl',
+        'p.createdAt',
+        'p.userAccountId',
+        'ds.id',
+        'ds.nickname',
+        'ds.roleTag',
+        'ua.id',
+        'ua.username',
+        'ua.rol',
+      ])
+      .where('p.id = :postId AND p.status = :approvedStatus', {
+        postId,
+        approvedStatus: ModerationStatus.APPROVED,
+      })
+      .getOne();
+
+    if (!entity) {
+      return null;
+    }
+
+    const hydrated = await this.hydrateApprovedPostEntities([entity]);
+    return hydrated[0] ?? null;
+  }
+
+  async findById(postId: string): Promise<Post | null> {
+    return this.repository.findOne({ where: { id: postId } });
+  }
+
+  async updatePost(postId: string, data: UpdatePostData): Promise<Post | null> {
+    return this.dataSource.transaction(async (manager) => {
+      const postRepo = manager.getRepository(Post);
+      const mediaRepo = manager.getRepository(PostMedia);
+
+      const existing = await postRepo.findOne({ where: { id: postId } });
+      if (!existing) {
+        return null;
+      }
+
+      if (data.content !== undefined) {
+        existing.content = data.content;
+      }
+      if (data.imageUrl !== undefined) {
+        existing.imageUrl = data.imageUrl;
+      }
+      existing.status = data.status;
+      existing.rejectionReason = data.rejectionReason;
+
+      const saved = await postRepo.save(existing);
+
+      if (data.mediaUrls !== undefined) {
+        await mediaRepo.delete({ postId: saved.id });
+        if (data.mediaUrls.length > 0) {
+          const mediaEntities = data.mediaUrls.map((url, idx) =>
+            mediaRepo.create({
+              postId: saved.id,
+              mediaUrl: url,
+              displayOrder: idx,
+            }),
+          );
+          await mediaRepo.save(mediaEntities);
+        }
+      }
+
+      return saved;
+    });
+  }
+
+  async deleteById(postId: string): Promise<boolean> {
+    const result = await this.repository.delete({ id: postId });
+    return (result.affected ?? 0) > 0;
+  }
+
+  async findMySubmissionsPaginated(
+    userAccountId: string,
+    status: ModerationStatus | undefined,
+    skip: number,
+    take: number,
+  ): Promise<{ items: MyPostSubmissionProjection[]; total: number }> {
+    const qb = this.repository
+      .createQueryBuilder('p')
+      .where('p.userAccountId = :userAccountId', { userAccountId });
+
+    if (status) {
+      qb.andWhere('p.status = :status', { status });
+    }
+
+    const [entities, total] = await qb
+      .orderBy('p.createdAt', 'DESC')
+      .skip(skip)
+      .take(take)
+      .getManyAndCount();
+
+    const postIds = entities.map((p) => p.id);
+    const mediaMap = new Map<string, string[]>();
+    if (postIds.length > 0) {
+      const mediaRows = await this.dataSource.query<RawPostMediaRow[]>(
+        `
+          SELECT post_id, media_url
+          FROM post_media
+          WHERE post_id = ANY($1::uuid[])
+          ORDER BY display_order ASC, created_at ASC
+        `,
+        [postIds],
+      );
+      for (const row of mediaRows) {
+        const current = mediaMap.get(row.post_id) ?? [];
+        current.push(row.media_url);
+        mediaMap.set(row.post_id, current);
+      }
+    }
+
+    const items: MyPostSubmissionProjection[] = entities.map((post) => {
+      const mediaList = mediaMap.get(post.id) ?? (post.imageUrl ? [post.imageUrl] : []);
+      return {
+        id: post.id,
+        categoryId: post.categoryId,
+        content: post.content,
+        imageUrl: post.imageUrl ?? mediaList[0] ?? null,
+        mediaUrls: mediaList,
+        status: post.status,
+        rejectionReason: post.rejectionReason,
+        createdAt: post.createdAt,
+        updatedAt: post.updatedAt,
+      };
+    });
+
+    return { items, total };
+  }
+
+  async findViewerReactionsByPostIds(
+    postIds: ReadonlyArray<string>,
+    deviceId: string,
+  ): Promise<Map<string, ReactionType[]>> {
+    const result = new Map<string, ReactionType[]>();
+    if (postIds.length === 0) {
+      return result;
+    }
+
+    const rows = await this.dataSource.query<Array<{ post_id: string; type: string }>>(
+      `
+        SELECT post_id, type
+        FROM reactions
+        WHERE post_id = ANY($1::uuid[]) AND device_id = $2::uuid
+      `,
+      [postIds, deviceId],
+    );
+
+    for (const row of rows) {
+      if (isReactionType(row.type)) {
+        const list = result.get(row.post_id) ?? [];
+        list.push(row.type);
+        result.set(row.post_id, list);
+      }
+    }
+
+    return result;
+  }
+
+  async findBookmarkedPostIds(
+    postIds: ReadonlyArray<string>,
+    deviceId: string,
+  ): Promise<Set<string>> {
+    const result = new Set<string>();
+    if (postIds.length === 0) {
+      return result;
+    }
+
+    const rows = await this.dataSource.query<Array<{ post_id: string }>>(
+      `
+        SELECT post_id
+        FROM post_bookmarks
+        WHERE post_id = ANY($1::uuid[]) AND device_id = $2::uuid
+      `,
+      [postIds, deviceId],
+    );
+
+    for (const row of rows) {
+      result.add(row.post_id);
+    }
+
+    return result;
+  }
+
+  async toggleBookmark(
+    postId: string,
+    deviceId: string,
+    userAccountId: string | null,
+  ): Promise<boolean> {
+    const bookmarkRepo = this.dataSource.getRepository(PostBookmark);
+    const existing = await bookmarkRepo.findOne({
+      where: { postId, deviceId },
+    });
+
+    if (existing) {
+      await bookmarkRepo.remove(existing);
+      return false;
+    }
+
+    const created = bookmarkRepo.create({
+      postId,
+      deviceId,
+      userAccountId,
+    });
+    await bookmarkRepo.save(created);
+    return true;
+  }
+
+  async findBookmarkedPostsPaginated(
+    deviceId: string,
+    userAccountId: string | null,
+    skip: number,
+    take: number,
+  ): Promise<{ items: ApprovedPostProjection[]; total: number }> {
+    const qb = this.repository
+      .createQueryBuilder('p')
+      .innerJoin(
+        PostBookmark,
+        'pb',
+        userAccountId
+          ? 'pb.post_id = p.id AND (pb.device_id = :deviceId OR pb.user_account_id = :userAccountId)'
+          : 'pb.post_id = p.id AND pb.device_id = :deviceId',
+        { deviceId, userAccountId },
+      )
+      .leftJoin('p.device', 'ds')
+      .leftJoin('p.userAccount', 'ua')
+      .select([
+        'p.id',
+        'p.categoryId',
+        'p.content',
+        'p.imageUrl',
+        'p.createdAt',
+        'p.userAccountId',
+        'ds.id',
+        'ds.nickname',
+        'ds.roleTag',
+        'ua.id',
+        'ua.username',
+        'ua.rol',
+      ])
+      .where('p.status = :approvedStatus', { approvedStatus: ModerationStatus.APPROVED });
+
+    const [entities, total] = await qb
+      .orderBy('p.createdAt', 'DESC')
+      .skip(skip)
+      .take(take)
+      .getManyAndCount();
+
+    const items = await this.hydrateApprovedPostEntities(entities);
     return { items, total };
   }
 

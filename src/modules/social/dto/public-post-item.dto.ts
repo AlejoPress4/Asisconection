@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ReactionType } from '../../../common/enums/reaction-type.enum';
 import { AuthorBadgeDto } from './author-badge.dto';
 
 export class ApprovedCommentItemDto {
@@ -56,6 +57,12 @@ export class PublicPostItemDto {
 
   @ApiProperty({ example: 2 })
   comments_count!: number;
+
+  @ApiPropertyOptional({ enum: ReactionType, isArray: true })
+  viewer_reactions?: ReactionType[];
+
+  @ApiPropertyOptional({ example: false })
+  is_bookmarked?: boolean;
 
   @ApiPropertyOptional({ type: () => [ApprovedCommentItemDto] })
   recent_comments?: ApprovedCommentItemDto[];

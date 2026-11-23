@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Comment } from '../social/entities/comment.entity';
 import { Post } from '../social/entities/post.entity';
 import { ContentFilterService } from './content-filter.service';
+import { ContentReport } from './entities/content-report.entity';
 import {
   CONTENT_FILTER_RULES,
   type IContentRule,
@@ -17,7 +18,7 @@ import { ProfanityContentRule } from './rules/profanity.rule';
 import { SpamContentRule } from './rules/spam.rule';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Post, Comment])],
+  imports: [TypeOrmModule.forFeature([Post, Comment, ContentReport])],
   controllers: [ModerationController],
   providers: [
     {

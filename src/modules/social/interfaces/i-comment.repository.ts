@@ -15,6 +15,7 @@ export interface CreateCommentData {
 export interface ICommentRepository {
   create(data: CreateCommentData): Promise<Comment>;
   findById?(id: string): Promise<Comment | null>;
+  deleteById?(id: string): Promise<boolean>;
   findApprovedByPostId?(
     postId: string,
     skip: number,

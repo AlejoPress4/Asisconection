@@ -24,12 +24,28 @@ export interface ActorStats {
   readonly followingCount: number;
 }
 
+export interface SearchActorsFilter {
+  readonly search?: string;
+  readonly role?: string;
+  readonly skip: number;
+  readonly take: number;
+}
+
+export interface ListConnectionsFilter {
+  readonly status?: ActorConnectionStatus;
+  readonly direction?: 'incoming' | 'outgoing' | 'all';
+}
+
 export interface IActorRepository {
   findByUserAccountId(userAccountId: string): Promise<Actor | null>;
   findById(actorId: string): Promise<Actor | null>;
   ensureForUserAccount(userAccountId: string, defaultRole: string): Promise<Actor>;
   updateByUserAccountId(userAccountId: string, defaultRole: string, fields: UpdateActorFields): Promise<Actor>;
   getStatsForActor?(actorId: string, userAccountId: string): Promise<ActorStats>;
+  searchActors?(filter: SearchActorsFilter): Promise<{ items: Actor[]; total: number }>;
+  findConnectionBetweenActors?(actorAId: string, actorBId: string): Promise<ActorConnection | null>;
+  listFollowers?(actorId: string, skip: number, take: number): Promise<{ items: Actor[]; total: number }>;
+  listFollowing?(actorId: string, skip: number, take: number): Promise<{ items: Actor[]; total: number }>;
   createConnection(
     requesterActorId: string,
     receiverActorId: string,
@@ -40,10 +56,12 @@ export interface IActorRepository {
     connectionId: string,
     status: ActorConnectionStatus,
   ): Promise<ActorConnection | null>;
+  deleteConnection?(connectionId: string): Promise<boolean>;
   listConnectionsForActor(
     actorId: string,
     skip: number,
     take: number,
+    filter?: ListConnectionsFilter,
   ): Promise<{ items: ActorConnection[]; total: number }>;
 }
 

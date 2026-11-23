@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -23,12 +24,17 @@ import { CurrentSession } from '../../common/decorators/current-session.decorato
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { ProblemDetailsDto } from '../../common/filters/all-exceptions.filter';
 import { DeviceSessionGuard } from '../../common/guards/device-session.guard';
+import { OptionalDeviceSessionGuard } from '../../common/guards/optional-device-session.guard';
 import { ActorsService } from './actors.service';
 import {
   ActorConnectionResponseDto,
   ActorConnectionsPageDto,
   ActorProfileResponseDto,
+  ActorsPageDto,
   CreateConnectionDto,
+  DeleteConnectionResponseDto,
+  ListActorsQueryDto,
+  ListConnectionsQueryDto,
   UpdateActorProfileDto,
   UpdateConnectionStatusDto,
 } from './dto/actor-profile.dto';
@@ -37,6 +43,16 @@ import {
 @Controller()
 export class ActorsController {
   constructor(private readonly actorsService: ActorsService) {}
+
+  @Get('actors')
+  @ApiOperation({
+    summary:
+      'Busca y explora perfiles Actor registrados en la comunidad (paginado RT-01, respeta Ley 1581)',
+  })
+  @ApiOkResponse({ type: ActorsPageDto })
+  async searchActors(@Query() query: ListActorsQueryDto): Promise<ActorsPageDto> {
+    return this.actorsService.searchActors(query);
+  }
 
   @Get('actors/me')
   @UseGuards(DeviceSessionGuard)
@@ -66,13 +82,44 @@ export class ActorsController {
   }
 
   @Get('actors/:id')
-  @ApiOperation({ summary: 'Consulta pública de un perfil Actor por UUID' })
+  @UseGuards(OptionalDeviceSessionGuard)
+  @ApiOperation({
+    summary:
+      'Consulta pública de un perfil Actor por UUID (incluye viewer_connection si hay sesión registrada)',
+  })
   @ApiOkResponse({ type: ActorProfileResponseDto })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
   async getActorById(
     @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentSession() optionalSession?: SessionContext,
   ): Promise<ActorProfileResponseDto> {
-    return this.actorsService.getActorById(id);
+    return this.actorsService.getActorById(id, optionalSession);
+  }
+
+  @Get('actors/:id/followers')
+  @ApiOperation({
+    summary: 'Lista paginada de seguidores (conexiones ACCEPTED entrantes) de un perfil Actor',
+  })
+  @ApiOkResponse({ type: ActorsPageDto })
+  @ApiNotFoundResponse({ type: ProblemDetailsDto })
+  async listFollowers(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query() query: PaginationQueryDto,
+  ): Promise<ActorsPageDto> {
+    return this.actorsService.listFollowers(id, query);
+  }
+
+  @Get('actors/:id/following')
+  @ApiOperation({
+    summary: 'Lista paginada de perfiles seguidos (conexiones ACCEPTED salientes) por un perfil Actor',
+  })
+  @ApiOkResponse({ type: ActorsPageDto })
+  @ApiNotFoundResponse({ type: ProblemDetailsDto })
+  async listFollowing(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query() query: PaginationQueryDto,
+  ): Promise<ActorsPageDto> {
+    return this.actorsService.listFollowing(id, query);
   }
 
   @Post('connections')
@@ -106,17 +153,33 @@ export class ActorsController {
     return this.actorsService.updateConnectionStatus(session, id, dto);
   }
 
+  @Delete('connections/:id')
+  @UseGuards(DeviceSessionGuard)
+  @ApiBearerAuth('DeviceSessionBearer')
+  @ApiOperation({
+    summary: 'Elimina una conexión o cancela una solicitud pendiente (dejar de seguir / unfollow)',
+  })
+  @ApiOkResponse({ type: DeleteConnectionResponseDto })
+  @ApiForbiddenResponse({ type: ProblemDetailsDto })
+  @ApiNotFoundResponse({ type: ProblemDetailsDto })
+  async deleteConnection(
+    @CurrentSession() session: SessionContext,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<DeleteConnectionResponseDto> {
+    return this.actorsService.deleteConnection(session, id);
+  }
+
   @Get('connections')
   @UseGuards(DeviceSessionGuard)
   @ApiBearerAuth('DeviceSessionBearer')
   @ApiOperation({
-    summary: 'Lista paginada de conexiones del perfil Actor actual',
+    summary: 'Lista paginada de conexiones del perfil Actor actual con filtros status y direction',
   })
   @ApiOkResponse({ type: ActorConnectionsPageDto })
   @ApiForbiddenResponse({ type: ProblemDetailsDto })
   async listMyConnections(
     @CurrentSession() session: SessionContext,
-    @Query() query: PaginationQueryDto,
+    @Query() query: ListConnectionsQueryDto,
   ): Promise<ActorConnectionsPageDto> {
     return this.actorsService.listMyConnections(session, query);
   }

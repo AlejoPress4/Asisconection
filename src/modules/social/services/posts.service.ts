@@ -20,7 +20,10 @@ import type { AuthorBadgeDto } from '../dto/author-badge.dto';
 import type { CommentsPageDto } from '../dto/comments-page.dto';
 import type { CreateCommentDto } from '../dto/create-comment.dto';
 import type { CreatePostDto } from '../dto/create-post.dto';
-import type { ListPostsQueryDto } from '../dto/list-posts-query.dto';
+import type {
+  ListMySubmissionsQueryDto,
+  ListPostsQueryDto,
+} from '../dto/list-posts-query.dto';
 import type {
   NotificationItemDto,
   NotificationsPageDto,
@@ -29,6 +32,12 @@ import type {
 import type { PendingSubmissionResponseDto } from '../dto/pending-submission-response.dto';
 import type { PostsPageDto } from '../dto/posts-page.dto';
 import type { PublicPostItemDto } from '../dto/public-post-item.dto';
+import type {
+  DeletedResourceResponseDto,
+  MyPostSubmissionsPageDto,
+  ToggleBookmarkResponseDto,
+  UpdatePostDto,
+} from '../dto/social-lifecycle.dto';
 import type {
   ToggleCommentReactionResponseDto,
   ToggleReactionResponseDto,
@@ -42,7 +51,11 @@ import {
   COMMENT_REPOSITORY,
   type ICommentRepository,
 } from '../interfaces/i-comment.repository';
-import { type IPostRepository, POST_REPOSITORY } from '../interfaces/i-post.repository';
+import {
+  type ApprovedPostProjection,
+  type IPostRepository,
+  POST_REPOSITORY,
+} from '../interfaces/i-post.repository';
 import {
   type IReactionRepository,
   REACTION_REPOSITORY,
@@ -94,22 +107,73 @@ export class PostsService {
     private readonly configService?: ConfigService<EnvironmentVariables, true>,
   ) {}
 
-  async listApproved(query: ListPostsQueryDto, userAccountId?: string): Promise<PostsPageDto> {
-    const { items, total } = await this.postRepository.findApprovedPaginated(
-      query.categoryId,
-      query.skip,
-      query.limit,
-      userAccountId,
-    );
+  async listApproved(
+    query: ListPostsQueryDto,
+    userAccountId?: string,
+    viewerSession?: SessionContext,
+  ): Promise<PostsPageDto> {
+    if (query.feed === 'following') {
+      if (!viewerSession?.userAccountId) {
+        throw new ForbiddenException(
+          'El feed personalizado de conexiones (following) está disponible únicamente para usuarios registrados.',
+        );
+      }
+    }
 
+    const hasAdvancedFilter =
+      Boolean(query.search && query.search.trim().length > 0) || query.feed === 'following';
+
+    const { items, total } = hasAdvancedFilter
+      ? await this.postRepository.findApprovedPaginated(
+          query.categoryId,
+          query.skip,
+          query.limit,
+          userAccountId,
+          {
+            search: query.search,
+            feed: query.feed,
+            followerUserAccountId: viewerSession?.userAccountId ?? undefined,
+          },
+        )
+      : await this.postRepository.findApprovedPaginated(
+          query.categoryId,
+          query.skip,
+          query.limit,
+          userAccountId,
+        );
+
+    const data = await this.mapApprovedProjectionsToDto(items, viewerSession);
+
+    return {
+      data,
+      meta: buildPaginationMeta(query.page, query.limit, total),
+    };
+  }
+
+  private async mapApprovedProjectionsToDto(
+    items: ReadonlyArray<ApprovedPostProjection>,
+    viewerSession?: SessionContext,
+  ): Promise<PublicPostItemDto[]> {
     const postIds = items.map((post) => post.id);
-    const [reactionsMap, commentsCountMap, recentCommentsMap] = await Promise.all([
+    const [
+      reactionsMap,
+      commentsCountMap,
+      recentCommentsMap,
+      viewerReactionsMap,
+      bookmarkedIdsSet,
+    ] = await Promise.all([
       this.postRepository.countReactionsByPostIds(postIds),
       this.postRepository.countApprovedCommentsByPostIds(postIds),
       this.postRepository.findRecentApprovedComments(postIds, 3),
+      viewerSession && this.postRepository.findViewerReactionsByPostIds
+        ? this.postRepository.findViewerReactionsByPostIds(postIds, viewerSession.sessionId)
+        : Promise.resolve(undefined),
+      viewerSession && this.postRepository.findBookmarkedPostIds
+        ? this.postRepository.findBookmarkedPostIds(postIds, viewerSession.sessionId)
+        : Promise.resolve(undefined),
     ]);
 
-    const data: PublicPostItemDto[] = items.map((post) => {
+    return items.map((post) => {
       const reactions = reactionsMap.get(post.id);
       const recentComments = recentCommentsMap.get(post.id) ?? [];
       const mediaUrls =
@@ -132,6 +196,8 @@ export class PostsService {
           THANKS: reactions?.[ReactionType.THANKS] ?? 0,
         },
         comments_count: commentsCountMap.get(post.id) ?? 0,
+        ...(viewerReactionsMap ? { viewer_reactions: viewerReactionsMap.get(post.id) ?? [] } : {}),
+        ...(bookmarkedIdsSet ? { is_bookmarked: bookmarkedIdsSet.has(post.id) } : {}),
         recent_comments: recentComments.map((comment) => ({
           id: comment.id,
           parent_id: comment.parentId ?? null,
@@ -142,11 +208,22 @@ export class PostsService {
         created_at: post.createdAt.toISOString(),
       };
     });
+  }
 
-    return {
-      data,
-      meta: buildPaginationMeta(query.page, query.limit, total),
-    };
+  async getApprovedPostById(
+    postId: string,
+    viewerSession?: SessionContext,
+  ): Promise<PublicPostItemDto> {
+    if (!this.postRepository.findApprovedById) {
+      throw new NotFoundException('La publicación solicitada no existe o no se encuentra aprobada.');
+    }
+    const post = await this.postRepository.findApprovedById(postId);
+    if (!post) {
+      throw new NotFoundException('La publicación solicitada no existe o no se encuentra aprobada.');
+    }
+
+    const mapped = await this.mapApprovedProjectionsToDto([post], viewerSession);
+    return mapped[0]!;
   }
 
   async listMyApprovedPosts(
@@ -303,6 +380,240 @@ export class PostsService {
       ...(rejectionReason ? { rejection_reason: rejectionReason } : {}),
       message,
       created_at: post.createdAt.toISOString(),
+    };
+  }
+
+  async updatePost(
+    session: SessionContext,
+    postId: string,
+    dto: UpdatePostDto,
+  ): Promise<PendingSubmissionResponseDto> {
+    if (!this.postRepository.findById || !this.postRepository.updatePost) {
+      throw new NotFoundException('La publicación solicitada no existe.');
+    }
+
+    const existing = await this.postRepository.findById(postId);
+    if (!existing) {
+      throw new NotFoundException('La publicación solicitada no existe.');
+    }
+
+    const isOwner =
+      (session.userAccountId !== null && existing.userAccountId === session.userAccountId) ||
+      existing.deviceId === session.sessionId;
+
+    if (!isOwner) {
+      throw new ForbiddenException('Solo el autor de la publicación puede editarla.');
+    }
+
+    if (
+      dto.content === undefined &&
+      dto.image_url === undefined &&
+      dto.media_urls === undefined
+    ) {
+      throw new BadRequestException(
+        'Debe proporcionar al menos un campo (content, image_url o media_urls) para actualizar.',
+      );
+    }
+
+    const nextMediaUrls =
+      dto.media_urls !== undefined
+        ? dto.media_urls
+        : dto.image_url !== undefined
+          ? [dto.image_url]
+          : undefined;
+
+    if (nextMediaUrls && nextMediaUrls.length > 0 && session.consentAcceptedAt === null) {
+      throw new ForbiddenException(
+        'Para adjuntar imágenes es obligatorio contar con consentimiento legal vigente (Ley 1581 de 2012 y Ley 1098 de 2006).',
+      );
+    }
+
+    const contentToEvaluate = dto.content ?? existing.content;
+    const filterEvaluation = this.contentFilterService?.evaluate(contentToEvaluate);
+    let nextStatus: ModerationStatus;
+    if (filterEvaluation?.status === ModerationStatus.REJECTED) {
+      nextStatus = ModerationStatus.REJECTED;
+    } else if (this.isPrivilegedModerator(session)) {
+      nextStatus = ModerationStatus.APPROVED;
+    } else {
+      nextStatus = ModerationStatus.PENDING;
+    }
+    const rejectionReason = filterEvaluation?.rejectionReason ?? null;
+
+    const updated = await this.postRepository.updatePost(postId, {
+      content: dto.content,
+      ...(nextMediaUrls !== undefined
+        ? {
+            imageUrl: dto.image_url ?? nextMediaUrls[0] ?? null,
+            mediaUrls: nextMediaUrls,
+          }
+        : {}),
+      status: nextStatus,
+      rejectionReason,
+    });
+
+    if (!updated) {
+      throw new NotFoundException('La publicación solicitada no existe.');
+    }
+
+    let message = PENDING_MODERATION_MESSAGE;
+    if (updated.status === ModerationStatus.REJECTED) {
+      message = AUTO_REJECTED_MODERATION_MESSAGE;
+    } else if (updated.status === ModerationStatus.APPROVED) {
+      message = APPROVED_MODERATION_MESSAGE;
+    }
+
+    return {
+      id: updated.id,
+      status: updated.status,
+      ...(rejectionReason ? { rejection_reason: rejectionReason } : {}),
+      message,
+      created_at: updated.createdAt.toISOString(),
+    };
+  }
+
+  async deletePost(
+    session: SessionContext,
+    postId: string,
+  ): Promise<DeletedResourceResponseDto> {
+    if (!this.postRepository.findById || !this.postRepository.deleteById) {
+      throw new NotFoundException('La publicación solicitada no existe.');
+    }
+
+    const existing = await this.postRepository.findById(postId);
+    if (!existing) {
+      throw new NotFoundException('La publicación solicitada no existe.');
+    }
+
+    const isOwner =
+      (session.userAccountId !== null && existing.userAccountId === session.userAccountId) ||
+      existing.deviceId === session.sessionId;
+
+    if (!isOwner && !this.isPrivilegedModerator(session)) {
+      throw new ForbiddenException('No tiene permisos para eliminar esta publicación.');
+    }
+
+    await this.postRepository.deleteById(postId);
+    return {
+      id: postId,
+      deleted: true,
+    };
+  }
+
+  async deleteComment(
+    session: SessionContext,
+    commentId: string,
+  ): Promise<DeletedResourceResponseDto> {
+    if (!this.commentRepository.findById || !this.commentRepository.deleteById) {
+      throw new NotFoundException('El comentario solicitado no existe.');
+    }
+
+    const existing = await this.commentRepository.findById(commentId);
+    if (!existing) {
+      throw new NotFoundException('El comentario solicitado no existe.');
+    }
+
+    const isOwner =
+      (session.userAccountId !== null && existing.userAccountId === session.userAccountId) ||
+      existing.deviceId === session.sessionId;
+
+    if (!isOwner && !this.isPrivilegedModerator(session)) {
+      throw new ForbiddenException('No tiene permisos para eliminar este comentario.');
+    }
+
+    await this.commentRepository.deleteById(commentId);
+    return {
+      id: commentId,
+      deleted: true,
+    };
+  }
+
+  async listMySubmissions(
+    session: SessionContext,
+    query: ListMySubmissionsQueryDto,
+  ): Promise<MyPostSubmissionsPageDto> {
+    if (!session.userAccountId) {
+      throw new ForbiddenException(
+        'El historial de publicaciones enviadas a moderación está disponible únicamente para usuarios registrados.',
+      );
+    }
+
+    if (!this.postRepository.findMySubmissionsPaginated) {
+      return {
+        data: [],
+        meta: buildPaginationMeta(query.page, query.limit, 0),
+      };
+    }
+
+    const { items, total } = await this.postRepository.findMySubmissionsPaginated(
+      session.userAccountId,
+      query.status,
+      query.skip,
+      query.limit,
+    );
+
+    return {
+      data: items.map((item) => ({
+        id: item.id,
+        category_id: item.categoryId,
+        content: item.content,
+        image_url: item.imageUrl,
+        media_urls: [...item.mediaUrls],
+        status: item.status,
+        rejection_reason: item.rejectionReason,
+        created_at: item.createdAt.toISOString(),
+        updated_at: item.updatedAt.toISOString(),
+      })),
+      meta: buildPaginationMeta(query.page, query.limit, total),
+    };
+  }
+
+  async toggleBookmark(
+    session: SessionContext,
+    postId: string,
+  ): Promise<ToggleBookmarkResponseDto> {
+    const postStatus = await this.postRepository.findStatusById(postId);
+    if (postStatus !== ModerationStatus.APPROVED) {
+      throw new NotFoundException('La publicación solicitada no existe o no se encuentra aprobada.');
+    }
+
+    const bookmarked = this.postRepository.toggleBookmark
+      ? await this.postRepository.toggleBookmark(
+          postId,
+          session.sessionId,
+          session.userAccountId,
+        )
+      : false;
+
+    return {
+      post_id: postId,
+      bookmarked,
+    };
+  }
+
+  async listBookmarks(
+    session: SessionContext,
+    query: PaginationQueryDto,
+  ): Promise<PostsPageDto> {
+    if (!this.postRepository.findBookmarkedPostsPaginated) {
+      return {
+        data: [],
+        meta: buildPaginationMeta(query.page, query.limit, 0),
+      };
+    }
+
+    const { items, total } = await this.postRepository.findBookmarkedPostsPaginated(
+      session.sessionId,
+      session.userAccountId,
+      query.skip,
+      query.limit,
+    );
+
+    const data = await this.mapApprovedProjectionsToDto(items, session);
+
+    return {
+      data,
+      meta: buildPaginationMeta(query.page, query.limit, total),
     };
   }
 

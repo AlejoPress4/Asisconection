@@ -1,5 +1,9 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { SessionContext } from '../../src/common/auth/interfaces/session-context.interface';
+import { ModerationStatus } from '../../src/common/enums/moderation-status.enum';
+import { ReactionType } from '../../src/common/enums/reaction-type.enum';
+import { ContentFilterService } from '../../src/modules/moderation/content-filter.service';
+import { ExternalLinkContentRule } from '../../src/modules/moderation/rules/external-link.rule';
 import { PostsService } from '../../src/modules/social/services/posts.service';
 import type { ICategoryRepository } from '../../src/modules/social/interfaces/i-category.repository';
 import type { IPostRepository } from '../../src/modules/social/interfaces/i-post.repository';
@@ -201,6 +205,125 @@ describe('PostsService - Profile Posts', () => {
       expect(updateLastNotificationsReadAtMock).toHaveBeenCalledWith('user-account-456');
       expect(result.marked_read).toBe(true);
       expect(result.updated_at).toBeDefined();
+    });
+  });
+
+  describe('CU-02, CU-03 & CU-04: Personalized Following Feed, Lifecycle & Bookmarks', () => {
+    it('blocks anonymous sessions from requesting feed=following and allows registered users', async () => {
+      const anonSession: SessionContext = {
+        ...sampleSession,
+        userAccountId: null,
+      };
+
+      await expect(
+        service.listApproved(
+          { page: 1, limit: 10, skip: 0, feed: 'following' },
+          undefined,
+          anonSession,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      await service.listApproved(
+        { page: 1, limit: 10, skip: 0, feed: 'following', search: '#inclusion' },
+        undefined,
+        sampleSession,
+      );
+
+      expect(findApprovedPaginatedMock).toHaveBeenCalledWith(
+        undefined,
+        0,
+        10,
+        undefined,
+        {
+          search: '#inclusion',
+          feed: 'following',
+          followerUserAccountId: 'user-account-456',
+        },
+      );
+    });
+
+    it('re-evaluates ContentFilterService and resets post to PENDING (or REJECTED) on updatePost (RN-02)', async () => {
+      const findByIdMock = jest.fn().mockResolvedValue({
+        id: 'post-1',
+        deviceId: 'device-123',
+        userAccountId: 'user-account-456',
+        categoryId: 'cat-1',
+        content: 'Texto original aprobado',
+        imageUrl: null,
+        status: ModerationStatus.APPROVED,
+        rejectionReason: null,
+        createdAt: new Date('2026-11-09T10:00:00Z'),
+        updatedAt: new Date('2026-11-09T10:00:00Z'),
+      });
+      const updatePostMock = jest.fn().mockImplementation((_id: string, data: { status: ModerationStatus; rejectionReason: string | null }) =>
+        Promise.resolve({
+          id: 'post-1',
+          status: data.status,
+          rejectionReason: data.rejectionReason,
+          createdAt: new Date('2026-11-09T10:00:00Z'),
+        }),
+      );
+
+      const postRepoWithLifecycle: IPostRepository = {
+        create: jest.fn(),
+        findStatusById: jest.fn().mockResolvedValue(ModerationStatus.APPROVED),
+        findApprovedPaginated: findApprovedPaginatedMock,
+        findById: findByIdMock,
+        updatePost: updatePostMock,
+        deleteById: jest.fn().mockResolvedValue(true),
+        toggleBookmark: jest.fn().mockResolvedValue(true),
+        findViewerReactionsByPostIds: jest
+          .fn()
+          .mockResolvedValue(new Map([['post-1', [ReactionType.SUPPORT]]])),
+        findBookmarkedPostIds: jest.fn().mockResolvedValue(new Set(['post-1'])),
+        findApprovedById: jest.fn().mockResolvedValue({
+          id: 'post-1',
+          categoryId: 'cat-1',
+          content: 'Publicación de prueba',
+          imageUrl: null,
+          mediaUrls: [],
+          createdAt: new Date('2026-11-09T10:00:00Z'),
+          userAccountId: 'user-account-456',
+          username: 'maria.acudiente',
+          rol: 'ACUDIENTE',
+          nickname: null,
+          roleTag: null,
+        }),
+        countReactionsByPostIds: jest.fn().mockResolvedValue(new Map()),
+        findRecentApprovedComments: jest.fn().mockResolvedValue(new Map()),
+        countApprovedCommentsByPostIds: jest.fn().mockResolvedValue(new Map()),
+      };
+
+      const filterService = new ContentFilterService([new ExternalLinkContentRule()]);
+      const lifecycleService = new PostsService(
+        { findPaginated: jest.fn(), existsById: jest.fn() },
+        postRepoWithLifecycle,
+        { create: jest.fn() },
+        { toggle: jest.fn() },
+        filterService,
+      );
+
+      // Edición limpia vuelve a PENDING (RN-02)
+      const pendingRes = await lifecycleService.updatePost(sampleSession, 'post-1', {
+        content: 'Texto editado sin enlaces externos',
+      });
+      expect(pendingRes.status).toBe(ModerationStatus.PENDING);
+
+      // Edición con enlace externo pasa a REJECTED (AUTO_FILTER)
+      const rejectedRes = await lifecycleService.updatePost(sampleSession, 'post-1', {
+        content: 'Miren https://spam-externo.com',
+      });
+      expect(rejectedRes.status).toBe(ModerationStatus.REJECTED);
+      expect(rejectedRes.rejection_reason).toBe('AUTO_FILTER');
+
+      // Detalle de post incluye viewer_reactions e is_bookmarked
+      const detail = await lifecycleService.getApprovedPostById('post-1', sampleSession);
+      expect(detail.viewer_reactions).toEqual([ReactionType.SUPPORT]);
+      expect(detail.is_bookmarked).toBe(true);
+
+      // Toggle bookmark
+      const bookmarkRes = await lifecycleService.toggleBookmark(sampleSession, 'post-1');
+      expect(bookmarkRes).toEqual({ post_id: 'post-1', bookmarked: true });
     });
   });
 });

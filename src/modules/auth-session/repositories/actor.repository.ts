@@ -10,6 +10,8 @@ import {
 import type {
   ActorStats,
   IActorRepository,
+  ListConnectionsFilter,
+  SearchActorsFilter,
   UpdateActorFields,
 } from '../interfaces/i-actor.repository';
 
@@ -193,15 +195,133 @@ export class ActorRepository implements IActorRepository, OnModuleInit {
     actorId: string,
     skip: number,
     take: number,
+    filter?: ListConnectionsFilter,
   ): Promise<{ items: ActorConnection[]; total: number }> {
-    const [items, total] = await this.connectionRepo
+    const qb = this.connectionRepo
       .createQueryBuilder('ac')
-      .where('ac.requester_actor_id = :actorId OR ac.receiver_actor_id = :actorId', { actorId })
+      .leftJoinAndSelect('ac.requesterActor', 'reqActor')
+      .leftJoinAndSelect('reqActor.userAccount', 'reqUa')
+      .leftJoinAndSelect('ac.receiverActor', 'recActor')
+      .leftJoinAndSelect('recActor.userAccount', 'recUa');
+
+    const direction = filter?.direction ?? 'all';
+    if (direction === 'incoming') {
+      qb.where('ac.receiver_actor_id = :actorId', { actorId });
+    } else if (direction === 'outgoing') {
+      qb.where('ac.requester_actor_id = :actorId', { actorId });
+    } else {
+      qb.where('(ac.requester_actor_id = :actorId OR ac.receiver_actor_id = :actorId)', {
+        actorId,
+      });
+    }
+
+    if (filter?.status) {
+      qb.andWhere('ac.status = :status', { status: filter.status });
+    }
+
+    const [items, total] = await qb
       .orderBy('ac.requested_at', 'DESC')
       .skip(skip)
       .take(take)
       .getManyAndCount();
 
     return { items, total };
+  }
+
+  async deleteConnection(connectionId: string): Promise<boolean> {
+    const result = await this.connectionRepo.delete({ id: connectionId });
+    return (result.affected ?? 0) > 0;
+  }
+
+  async findConnectionBetweenActors(
+    actorAId: string,
+    actorBId: string,
+  ): Promise<ActorConnection | null> {
+    return this.connectionRepo
+      .createQueryBuilder('ac')
+      .where(
+        '(ac.requester_actor_id = :actorAId AND ac.receiver_actor_id = :actorBId) OR (ac.requester_actor_id = :actorBId AND ac.receiver_actor_id = :actorAId)',
+        { actorAId, actorBId },
+      )
+      .getOne();
+  }
+
+  async searchActors(filter: SearchActorsFilter): Promise<{ items: Actor[]; total: number }> {
+    const qb = this.actorRepo
+      .createQueryBuilder('a')
+      .innerJoinAndSelect('a.userAccount', 'ua')
+      .where('ua.is_active = true');
+
+    if (filter.role && filter.role.trim().length > 0) {
+      qb.andWhere('UPPER(a.primary_role) = UPPER(:role)', { role: filter.role.trim() });
+    }
+
+    if (filter.search && filter.search.trim().length > 0) {
+      const pattern = `%${filter.search.trim()}%`;
+      qb.andWhere(
+        '(ua.username ILIKE :pattern OR a.first_names ILIKE :pattern OR a.last_names ILIKE :pattern OR a.short_bio ILIKE :pattern OR (a.show_city = true AND a.city ILIKE :pattern))',
+        { pattern },
+      );
+    }
+
+    const [items, total] = await qb
+      .orderBy('a.created_at', 'DESC')
+      .skip(filter.skip)
+      .take(filter.take)
+      .getManyAndCount();
+
+    return { items, total };
+  }
+
+  async listFollowers(
+    actorId: string,
+    skip: number,
+    take: number,
+  ): Promise<{ items: Actor[]; total: number }> {
+    const [connections, total] = await this.connectionRepo
+      .createQueryBuilder('ac')
+      .innerJoinAndSelect('ac.requesterActor', 'reqActor')
+      .innerJoinAndSelect('reqActor.userAccount', 'reqUa')
+      .where('ac.receiver_actor_id = :actorId AND ac.status = :status', {
+        actorId,
+        status: 'ACCEPTED',
+      })
+      .orderBy('ac.accepted_at', 'DESC')
+      .skip(skip)
+      .take(take)
+      .getManyAndCount();
+
+    return {
+      items: connections
+        .map((c) => c.requesterActor)
+        .filter((actor): actor is Actor => Boolean(actor)),
+      total,
+    };
+  }
+
+  async listFollowing(
+    actorId: string,
+    skip: number,
+    take: number,
+  ): Promise<{ items: Actor[]; total: number }> {
+    const [connections, total] = await this.connectionRepo
+      .createQueryBuilder('ac')
+      .innerJoinAndSelect('ac.receiverActor', 'recActor')
+      .innerJoinAndSelect('recActor.userAccount', 'recUa')
+      .where('ac.requester_actor_id = :actorId AND ac.status = :status', {
+        actorId,
+        status: 'ACCEPTED',
+      })
+      .orderBy('ac.accepted_at', 'DESC')
+      .skip(skip)
+      .take(take)
+      .getManyAndCount();
+
+    return {
+      items: connections
+        .map((c) => c.receiverActor)
+        .filter((actor): actor is Actor => Boolean(actor)),
+      total,
+    };
   }
 }

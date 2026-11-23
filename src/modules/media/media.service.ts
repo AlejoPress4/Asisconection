@@ -1,6 +1,10 @@
 import { BadGatewayException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { v2 as cloudinary, type UploadApiResponse } from 'cloudinary';
+import {
+  v2 as cloudinary,
+  type UploadApiErrorResponse,
+  type UploadApiResponse,
+} from 'cloudinary';
 import { Readable } from 'stream';
 import type { EnvironmentVariables } from '../../config/env.validation';
 import type { UploadMediaResponseDto } from './dto/upload-media-response.dto';
@@ -68,7 +72,7 @@ export class MediaService {
           quality: 'auto',
           fetch_format: 'auto',
         },
-        (error, result?: UploadApiResponse) => {
+        (error: UploadApiErrorResponse | undefined, result?: UploadApiResponse) => {
           if (error || !result) {
             const rawMsg =
               error && typeof error === 'object' && 'message' in error

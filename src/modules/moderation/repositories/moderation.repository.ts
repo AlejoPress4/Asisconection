@@ -1,10 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import type { DataSource } from 'typeorm';
 import { ModerationStatus } from '../../../common/enums/moderation-status.enum';
+import type {
+  ContentReportReason,
+  ContentReportStatus,
+  ContentReportTargetType,
+} from '../dto/content-report.dto';
 import type { ModerationItemType } from '../dto/pending-query.dto';
 import type { AllowedModerationDecision } from '../dto/update-moderation-status.dto';
 import type {
+  ContentReportRecord,
+  CreateContentReportInput,
   IModerationRepository,
   ModerationUpdatedRecord,
   ModeratorAccountRecord,
@@ -48,6 +55,44 @@ interface RawModeratorRow {
   readonly avatar_url?: string | null;
 }
 
+interface RawContentReportRow {
+  readonly id: string;
+  readonly target_type: ContentReportTargetType;
+  readonly post_id: string | null;
+  readonly comment_id: string | null;
+  readonly target_content_preview?: string | null;
+  readonly reason: ContentReportReason;
+  readonly details: string | null;
+  readonly status: ContentReportStatus;
+  readonly reporter_device_id: string;
+  readonly reporter_user_account_id: string | null;
+  readonly resolved_by_user_account_id: string | null;
+  readonly resolved_at: Date | string | null;
+  readonly created_at: Date | string;
+}
+
+function mapRawContentReportRow(row: RawContentReportRow): ContentReportRecord {
+  return {
+    id: row.id,
+    targetType: row.target_type,
+    targetId: (row.target_type === 'POST' ? row.post_id : row.comment_id) ?? '',
+    targetContentPreview: row.target_content_preview ?? null,
+    reason: row.reason,
+    details: row.details,
+    status: row.status,
+    reporterDeviceId: row.reporter_device_id,
+    reporterUserAccountId: row.reporter_user_account_id,
+    resolvedByUserAccountId: row.resolved_by_user_account_id,
+    resolvedAt:
+      row.resolved_at === null
+        ? null
+        : row.resolved_at instanceof Date
+          ? row.resolved_at
+          : new Date(row.resolved_at),
+    createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+  };
+}
+
 function mapRawPendingRow(row: RawPendingRow): PendingModerationRow {
   return {
     id: row.id,
@@ -67,11 +112,46 @@ function mapRawPendingRow(row: RawPendingRow): PendingModerationRow {
 }
 
 @Injectable()
-export class ModerationRepository implements IModerationRepository {
+export class ModerationRepository implements IModerationRepository, OnModuleInit {
+  private readonly logger = new Logger(ModerationRepository.name);
+
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.dataSource.query(`
+        CREATE TABLE IF NOT EXISTS "content_reports" (
+          "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
+          "target_type" varchar(20) NOT NULL,
+          "post_id" uuid NULL,
+          "comment_id" uuid NULL,
+          "reporter_device_id" uuid NOT NULL,
+          "reporter_user_account_id" uuid NULL,
+          "reason" varchar(40) NOT NULL,
+          "details" varchar(500) NULL,
+          "status" varchar(20) NOT NULL DEFAULT 'OPEN',
+          "resolved_by_user_account_id" uuid NULL,
+          "resolved_at" TIMESTAMPTZ NULL,
+          "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT "PK_content_reports_id" PRIMARY KEY ("id"),
+          CONSTRAINT "FK_content_reports_post" FOREIGN KEY ("post_id") REFERENCES "posts"("id") ON DELETE CASCADE,
+          CONSTRAINT "FK_content_reports_comment" FOREIGN KEY ("comment_id") REFERENCES "comments"("id") ON DELETE CASCADE,
+          CONSTRAINT "FK_content_reports_reporter_device" FOREIGN KEY ("reporter_device_id") REFERENCES "device_sessions"("id") ON DELETE CASCADE,
+          CONSTRAINT "FK_content_reports_reporter_user" FOREIGN KEY ("reporter_user_account_id") REFERENCES "user_accounts"("id") ON DELETE SET NULL,
+          CONSTRAINT "FK_content_reports_resolved_user" FOREIGN KEY ("resolved_by_user_account_id") REFERENCES "user_accounts"("id") ON DELETE SET NULL
+        );
+      `);
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo asegurar la tabla "content_reports": ${
+          error instanceof Error ? error.message : 'error desconocido'
+        }`,
+      );
+    }
+  }
 
   async findPending(
     type: ModerationItemType | undefined,
@@ -367,5 +447,144 @@ export class ModerationRepository implements IModerationRepository {
       rol: row.rol,
       localRole: row.local_role,
     };
+  }
+
+  async targetExistsAndApproved(
+    targetType: ContentReportTargetType,
+    targetId: string,
+  ): Promise<boolean> {
+    if (targetType === 'POST') {
+      const rows = await this.dataSource.query<RawCountRow[]>(
+        `SELECT COUNT(*)::int AS total FROM posts WHERE id = $1::uuid AND status = $2::"public"."moderation_status_enum"`,
+        [targetId, ModerationStatus.APPROVED],
+      );
+      return Number(rows[0]?.total ?? 0) > 0;
+    }
+
+    const rows = await this.dataSource.query<RawCountRow[]>(
+      `SELECT COUNT(*)::int AS total FROM comments WHERE id = $1::uuid AND status = $2::"public"."moderation_status_enum"`,
+      [targetId, ModerationStatus.APPROVED],
+    );
+    return Number(rows[0]?.total ?? 0) > 0;
+  }
+
+  async hasOpenReportByDevice(
+    targetType: ContentReportTargetType,
+    targetId: string,
+    reporterDeviceId: string,
+  ): Promise<boolean> {
+    const column = targetType === 'POST' ? 'post_id' : 'comment_id';
+    const rows = await this.dataSource.query<RawCountRow[]>(
+      `
+        SELECT COUNT(*)::int AS total
+        FROM content_reports
+        WHERE target_type = $1
+          AND ${column} = $2::uuid
+          AND reporter_device_id = $3::uuid
+          AND status = 'OPEN'
+      `,
+      [targetType, targetId, reporterDeviceId],
+    );
+    return Number(rows[0]?.total ?? 0) > 0;
+  }
+
+  async createContentReport(input: CreateContentReportInput): Promise<ContentReportRecord> {
+    const postId = input.targetType === 'POST' ? input.targetId : null;
+    const commentId = input.targetType === 'COMMENT' ? input.targetId : null;
+    const rows = await this.dataSource.query<RawContentReportRow[]>(
+      `
+        INSERT INTO content_reports (
+          target_type,
+          post_id,
+          comment_id,
+          reporter_device_id,
+          reporter_user_account_id,
+          reason,
+          details,
+          status
+        )
+        VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, 'OPEN')
+        RETURNING *
+      `,
+      [
+        input.targetType,
+        postId,
+        commentId,
+        input.reporterDeviceId,
+        input.reporterUserAccountId,
+        input.reason,
+        input.details,
+      ],
+    );
+
+    return mapRawContentReportRow(rows[0]!);
+  }
+
+  async findContentReports(
+    status: ContentReportStatus | undefined,
+    skip: number,
+    take: number,
+  ): Promise<{ items: ContentReportRecord[]; total: number }> {
+    const params: unknown[] = [];
+    let whereClause = '';
+    if (status) {
+      params.push(status);
+      whereClause = `WHERE cr.status = $1`;
+    }
+
+    const limitIdx = params.length + 1;
+    const offsetIdx = params.length + 2;
+
+    const [rows, countRows] = await Promise.all([
+      this.dataSource.query<RawContentReportRow[]>(
+        `
+          SELECT
+            cr.*,
+            SUBSTRING(COALESCE(p.content, c.content) FROM 1 FOR 140) AS target_content_preview
+          FROM content_reports cr
+          LEFT JOIN posts p ON p.id = cr.post_id
+          LEFT JOIN comments c ON c.id = cr.comment_id
+          ${whereClause}
+          ORDER BY cr.created_at DESC
+          LIMIT $${limitIdx} OFFSET $${offsetIdx}
+        `,
+        [...params, take, skip],
+      ),
+      this.dataSource.query<RawCountRow[]>(
+        `SELECT COUNT(*)::int AS total FROM content_reports cr ${whereClause}`,
+        params,
+      ),
+    ]);
+
+    return {
+      items: rows.map(mapRawContentReportRow),
+      total: Number(countRows[0]?.total ?? 0),
+    };
+  }
+
+  async resolveContentReport(
+    reportId: string,
+    status: 'RESOLVED' | 'DISMISSED',
+    resolvedByUserAccountId: string | null,
+  ): Promise<ContentReportRecord | null> {
+    const rows = await this.dataSource.query<RawContentReportRow[]>(
+      `
+        UPDATE content_reports
+        SET
+          status = $2,
+          resolved_by_user_account_id = $3::uuid,
+          resolved_at = now()
+        WHERE id = $1::uuid
+        RETURNING *
+      `,
+      [reportId, status, resolvedByUserAccountId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return mapRawContentReportRow(row);
   }
 }

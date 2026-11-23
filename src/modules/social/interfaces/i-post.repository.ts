@@ -51,6 +51,32 @@ export interface CreatePostData {
   readonly rejectionReason?: string | null;
 }
 
+export interface UpdatePostData {
+  readonly content?: string;
+  readonly imageUrl?: string | null;
+  readonly mediaUrls?: ReadonlyArray<string>;
+  readonly status: ModerationStatus;
+  readonly rejectionReason: string | null;
+}
+
+export interface FindApprovedPostsOptions {
+  readonly search?: string;
+  readonly feed?: 'discover' | 'following';
+  readonly followerUserAccountId?: string;
+}
+
+export interface MyPostSubmissionProjection {
+  readonly id: string;
+  readonly categoryId: string;
+  readonly content: string;
+  readonly imageUrl: string | null;
+  readonly mediaUrls: ReadonlyArray<string>;
+  readonly status: ModerationStatus;
+  readonly rejectionReason: string | null;
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
+}
+
 export interface RawAggregatedNotificationRow {
   readonly id: string;
   readonly notif_type:
@@ -70,10 +96,40 @@ export interface IPostRepository {
     skip: number,
     take: number,
     userAccountId?: string,
+    options?: FindApprovedPostsOptions,
   ): Promise<{ items: ApprovedPostProjection[]; total: number }>;
+  findApprovedById?(postId: string): Promise<ApprovedPostProjection | null>;
+  findById?(postId: string): Promise<Post | null>;
+  updatePost?(postId: string, data: UpdatePostData): Promise<Post | null>;
+  deleteById?(postId: string): Promise<boolean>;
+  findMySubmissionsPaginated?(
+    userAccountId: string,
+    status: ModerationStatus | undefined,
+    skip: number,
+    take: number,
+  ): Promise<{ items: MyPostSubmissionProjection[]; total: number }>;
   countReactionsByPostIds(
     postIds: ReadonlyArray<string>,
   ): Promise<Map<string, Record<ReactionType, number>>>;
+  findViewerReactionsByPostIds?(
+    postIds: ReadonlyArray<string>,
+    deviceId: string,
+  ): Promise<Map<string, ReactionType[]>>;
+  findBookmarkedPostIds?(
+    postIds: ReadonlyArray<string>,
+    deviceId: string,
+  ): Promise<Set<string>>;
+  toggleBookmark?(
+    postId: string,
+    deviceId: string,
+    userAccountId: string | null,
+  ): Promise<boolean>;
+  findBookmarkedPostsPaginated?(
+    deviceId: string,
+    userAccountId: string | null,
+    skip: number,
+    take: number,
+  ): Promise<{ items: ApprovedPostProjection[]; total: number }>;
   countApprovedCommentsByPostIds(postIds: ReadonlyArray<string>): Promise<Map<string, number>>;
   findRecentApprovedComments(
     postIds: ReadonlyArray<string>,

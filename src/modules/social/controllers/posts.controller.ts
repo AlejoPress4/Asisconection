@@ -1,12 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
   ParseUUIDPipe,
-   Patch,
+  Patch,
   Post,
   Query,
   UnauthorizedException,
@@ -29,16 +30,27 @@ import { CurrentSession } from '../../../common/decorators/current-session.decor
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 import { ProblemDetailsDto } from '../../../common/filters/all-exceptions.filter';
 import { DeviceSessionGuard } from '../../../common/guards/device-session.guard';
+import { OptionalDeviceSessionGuard } from '../../../common/guards/optional-device-session.guard';
 import { CommentsPageDto } from '../dto/comments-page.dto';
 import { CreateCommentDto } from '../dto/create-comment.dto';
 import { CreatePostDto } from '../dto/create-post.dto';
-import { ListPostsQueryDto } from '../dto/list-posts-query.dto';
+import {
+  ListMySubmissionsQueryDto,
+  ListPostsQueryDto,
+} from '../dto/list-posts-query.dto';
 import {
   NotificationsPageDto,
   NotificationsReadResponseDto,
 } from '../dto/notifications-page.dto';
 import { PendingSubmissionResponseDto } from '../dto/pending-submission-response.dto';
 import { PostsPageDto } from '../dto/posts-page.dto';
+import { PublicPostItemDto } from '../dto/public-post-item.dto';
+import {
+  DeletedResourceResponseDto,
+  MyPostSubmissionsPageDto,
+  ToggleBookmarkResponseDto,
+  UpdatePostDto,
+} from '../dto/social-lifecycle.dto';
 import {
   ToggleCommentReactionResponseDto,
   ToggleReactionResponseDto,
@@ -59,8 +71,10 @@ export class PostsController {
   constructor(private readonly postsService: PostsService) {}
 
   @Get('posts')
+  @UseGuards(OptionalDeviceSessionGuard)
   @ApiOperation({
-    summary: 'Lista exclusivamente publicaciones con status = APPROVED (RT-01, RN-02)',
+    summary:
+      'Lista exclusivamente publicaciones con status = APPROVED con soporte de feed de conexiones y búsqueda (RT-01, RN-02)',
   })
   @ApiOkResponse({
     description: 'Página ligera de publicaciones aprobadas',
@@ -70,8 +84,105 @@ export class PostsController {
     description: 'Parámetros de consulta inválidos',
     type: ProblemDetailsDto,
   })
-  async listApproved(@Query() query: ListPostsQueryDto): Promise<PostsPageDto> {
-    return this.postsService.listApproved(query);
+  async listApproved(
+    @Query() query: ListPostsQueryDto,
+    @CurrentSession() optionalSession?: SessionContext,
+  ): Promise<PostsPageDto> {
+    return this.postsService.listApproved(query, undefined, optionalSession);
+  }
+
+  @Get('posts/:id')
+  @UseGuards(OptionalDeviceSessionGuard)
+  @ApiOperation({
+    summary: 'Obtiene el detalle de una publicación aprobada por su UUID',
+  })
+  @ApiOkResponse({
+    description: 'Detalle de publicación aprobada',
+    type: PublicPostItemDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Publicación no encontrada o no aprobada',
+    type: ProblemDetailsDto,
+  })
+  async getApprovedPostById(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentSession() optionalSession?: SessionContext,
+  ): Promise<PublicPostItemDto> {
+    return this.postsService.getApprovedPostById(id, optionalSession);
+  }
+
+  @Patch('posts/:id')
+  @UseGuards(DeviceSessionGuard)
+  @ApiBearerAuth('DeviceSessionBearer')
+  @ApiOperation({
+    summary:
+      'Edita una publicación propia re-evaluando ContentFilterService y regresando a PENDING conforme a RN-02',
+  })
+  @ApiOkResponse({
+    description: 'Publicación actualizada y re-evaluada por moderación',
+    type: PendingSubmissionResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Solo el autor puede editar su publicación',
+    type: ProblemDetailsDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Publicación no encontrada',
+    type: ProblemDetailsDto,
+  })
+  async updatePost(
+    @CurrentSession() session: SessionContext | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdatePostDto,
+  ): Promise<PendingSubmissionResponseDto> {
+    return this.postsService.updatePost(requireSession(session), id, dto);
+  }
+
+  @Delete('posts/:id')
+  @UseGuards(DeviceSessionGuard)
+  @ApiBearerAuth('DeviceSessionBearer')
+  @ApiOperation({
+    summary: 'Elimina una publicación propia o por privilegio ADMIN/MODERATOR',
+  })
+  @ApiOkResponse({
+    description: 'Publicación eliminada',
+    type: DeletedResourceResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Sin permisos para eliminar la publicación',
+    type: ProblemDetailsDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Publicación no encontrada',
+    type: ProblemDetailsDto,
+  })
+  async deletePost(
+    @CurrentSession() session: SessionContext | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<DeletedResourceResponseDto> {
+    return this.postsService.deletePost(requireSession(session), id);
+  }
+
+  @Get('actors/me/submissions')
+  @UseGuards(DeviceSessionGuard)
+  @ApiBearerAuth('DeviceSessionBearer')
+  @ApiOperation({
+    summary:
+      'Lista todas las publicaciones enviadas por el usuario registrado autenticado incluyendo estados PENDING, APPROVED y REJECTED',
+  })
+  @ApiOkResponse({
+    description: 'Página de envíos propios con estado de moderación',
+    type: MyPostSubmissionsPageDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Exclusivo para usuarios registrados',
+    type: ProblemDetailsDto,
+  })
+  async listMySubmissions(
+    @CurrentSession() session: SessionContext | undefined,
+    @Query() query: ListMySubmissionsQueryDto,
+  ): Promise<MyPostSubmissionsPageDto> {
+    return this.postsService.listMySubmissions(requireSession(session), query);
   }
 
   @Get('actors/me/posts')
@@ -260,6 +371,72 @@ export class PostsController {
     @Body() dto: ToggleReactionDto,
   ): Promise<ToggleCommentReactionResponseDto> {
     return this.postsService.toggleCommentReaction(requireSession(session), commentId, dto);
+  }
+
+  @Delete('comments/:id')
+  @UseGuards(DeviceSessionGuard)
+  @ApiBearerAuth('DeviceSessionBearer')
+  @ApiOperation({
+    summary: 'Elimina un comentario propio o por privilegio ADMIN/MODERATOR',
+  })
+  @ApiOkResponse({
+    description: 'Comentario eliminado',
+    type: DeletedResourceResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Sin permisos para eliminar el comentario',
+    type: ProblemDetailsDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Comentario no encontrado',
+    type: ProblemDetailsDto,
+  })
+  async deleteComment(
+    @CurrentSession() session: SessionContext | undefined,
+    @Param('id', new ParseUUIDPipe()) commentId: string,
+  ): Promise<DeletedResourceResponseDto> {
+    return this.postsService.deleteComment(requireSession(session), commentId);
+  }
+
+  @Post('posts/:postId/bookmarks')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(DeviceSessionGuard)
+  @ApiBearerAuth('DeviceSessionBearer')
+  @ApiOperation({
+    summary:
+      'Guarda o retira (toggle) una publicación aprobada en la colección de marcadores del usuario/dispositivo',
+  })
+  @ApiOkResponse({
+    description: 'Estado resultante del marcador',
+    type: ToggleBookmarkResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Publicación no encontrada o no aprobada',
+    type: ProblemDetailsDto,
+  })
+  async toggleBookmark(
+    @CurrentSession() session: SessionContext | undefined,
+    @Param('postId', new ParseUUIDPipe()) postId: string,
+  ): Promise<ToggleBookmarkResponseDto> {
+    return this.postsService.toggleBookmark(requireSession(session), postId);
+  }
+
+  @Get('bookmarks')
+  @UseGuards(DeviceSessionGuard)
+  @ApiBearerAuth('DeviceSessionBearer')
+  @ApiOperation({
+    summary:
+      'Lista paginada de publicaciones aprobadas guardadas en marcadores por el usuario/dispositivo actual',
+  })
+  @ApiOkResponse({
+    description: 'Página de publicaciones guardadas',
+    type: PostsPageDto,
+  })
+  async listBookmarks(
+    @CurrentSession() session: SessionContext | undefined,
+    @Query() query: PaginationQueryDto,
+  ): Promise<PostsPageDto> {
+    return this.postsService.listBookmarks(requireSession(session), query);
   }
 
   @Get('notifications')

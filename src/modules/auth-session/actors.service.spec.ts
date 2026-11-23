@@ -212,6 +212,73 @@ describe('ActorsService (Ley 1581 privacy & profile management)', () => {
       expect(result.accepted_at === null).toBe(expectedStatus === 'PENDING');
     },
   );
+
+  it('searches actors respecting Ley 1581 privacy flags and returns viewer_connection when authenticated', async () => {
+    const peerActor = createSampleActor({
+      id: 'b2c3d4e5-f6a7-4890-abcd-ef1234567890',
+      userAccountId: 'u2b2c3d4-e5f6-4890-abcd-ef1234567890',
+      showCity: true,
+      city: 'Medellín',
+    });
+
+    const repoWithDiscovery: IActorRepository = {
+      findByUserAccountId: jest.fn().mockResolvedValue(createSampleActor()),
+      findById: jest.fn().mockResolvedValue(peerActor),
+      ensureForUserAccount: ensureForUserAccountMock.mockResolvedValue(createSampleActor()),
+      updateByUserAccountId: updateByUserAccountIdMock,
+      searchActors: jest.fn().mockResolvedValue({ items: [peerActor], total: 1 }),
+      findConnectionBetweenActors: jest.fn().mockResolvedValue({
+        id: 'conn-123',
+        requesterActorId: 'a1b2c3d4-e5f6-4890-abcd-ef1234567890',
+        receiverActorId: peerActor.id,
+        status: 'ACCEPTED',
+        requestedAt: new Date('2026-03-01T12:00:00.000Z'),
+        acceptedAt: new Date('2026-03-01T12:05:00.000Z'),
+      }),
+      listFollowers: jest.fn().mockResolvedValue({ items: [createSampleActor()], total: 1 }),
+      listFollowing: jest.fn().mockResolvedValue({ items: [peerActor], total: 1 }),
+      createConnection: createConnectionMock,
+      findConnectionById: jest.fn().mockResolvedValue({
+        id: 'conn-123',
+        requesterActorId: 'a1b2c3d4-e5f6-4890-abcd-ef1234567890',
+        receiverActorId: peerActor.id,
+        status: 'ACCEPTED',
+        requestedAt: new Date('2026-03-01T12:00:00.000Z'),
+        acceptedAt: new Date('2026-03-01T12:05:00.000Z'),
+      }),
+      updateConnectionStatus: jest.fn(),
+      deleteConnection: jest.fn().mockResolvedValue(true),
+      listConnectionsForActor: jest.fn(),
+    };
+
+    const discoveryService = new ActorsService(repoWithDiscovery);
+    const searchPage = await discoveryService.searchActors({
+      search: 'María',
+      page: 1,
+      limit: 10,
+      skip: 0,
+    });
+    expect(searchPage.data).toHaveLength(1);
+    expect(searchPage.data[0]?.city).toBe('Medellín');
+    expect(searchPage.data[0]?.email).toBeUndefined();
+
+    const profileWithRel = await discoveryService.getActorById(peerActor.id, registeredSession);
+    expect(profileWithRel.viewer_connection).toEqual({
+      connection_id: 'conn-123',
+      status: 'ACCEPTED',
+      direction: 'OUTGOING',
+    });
+
+    const followersPage = await discoveryService.listFollowers(peerActor.id, {
+      page: 1,
+      limit: 10,
+      skip: 0,
+    });
+    expect(followersPage.meta.total_items).toBe(1);
+
+    const unfollowed = await discoveryService.deleteConnection(registeredSession, 'conn-123');
+    expect(unfollowed).toEqual({ id: 'conn-123', deleted: true });
+  });
 });
 
 describe('toCurrentSessionDto (GET /v1/sessions/me)', () => {

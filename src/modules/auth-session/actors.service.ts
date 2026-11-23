@@ -12,9 +12,15 @@ import type {
   ActorConnectionResponseDto,
   ActorConnectionsPageDto,
   ActorProfileResponseDto,
+  ActorsPageDto,
+  ConnectionPeerActorDto,
   CreateConnectionDto,
+  DeleteConnectionResponseDto,
+  ListActorsQueryDto,
+  ListConnectionsQueryDto,
   UpdateActorProfileDto,
   UpdateConnectionStatusDto,
+  ViewerConnectionStatusDto,
 } from './dto/actor-profile.dto';
 import type { Actor } from './entities/actor.entity';
 import type { ActorConnection, ActorConnectionStatus } from './entities/actor-connection.entity';
@@ -73,7 +79,43 @@ export class ActorsService {
     });
   }
 
-  async getActorById(actorId: string): Promise<ActorProfileResponseDto> {
+  async searchActors(query: ListActorsQueryDto): Promise<ActorsPageDto> {
+    if (!this.actorRepository.searchActors) {
+      return {
+        data: [],
+        meta: buildPaginationMeta(query.page, query.limit, 0),
+      };
+    }
+
+    const { items, total } = await this.actorRepository.searchActors({
+      search: query.search,
+      role: query.role,
+      skip: query.skip,
+      take: query.limit,
+    });
+
+    const data = await Promise.all(
+      items.map(async (actor) => {
+        const stats = this.actorRepository.getStatsForActor
+          ? await this.actorRepository.getStatsForActor(actor.id, actor.userAccountId)
+          : undefined;
+        return this.mapActorDto(actor, actor.userAccount?.username ?? 'usuario', {
+          includeEmail: false,
+          stats,
+        });
+      }),
+    );
+
+    return {
+      data,
+      meta: buildPaginationMeta(query.page, query.limit, total),
+    };
+  }
+
+  async getActorById(
+    actorId: string,
+    optionalSession?: SessionContext,
+  ): Promise<ActorProfileResponseDto> {
     const actor = await this.actorRepository.findById(actorId);
     if (!actor) {
       throw new NotFoundException('El perfil Actor solicitado no existe.');
@@ -81,10 +123,90 @@ export class ActorsService {
     const stats = this.actorRepository.getStatsForActor
       ? await this.actorRepository.getStatsForActor(actor.id, actor.userAccountId)
       : undefined;
+
+    let viewerConnection: ViewerConnectionStatusDto | null | undefined;
+    if (
+      optionalSession?.userAccountId &&
+      optionalSession.userAccountId !== actor.userAccountId &&
+      this.actorRepository.findConnectionBetweenActors
+    ) {
+      const viewerActor = await this.actorRepository.findByUserAccountId(
+        optionalSession.userAccountId,
+      );
+      if (viewerActor) {
+        const connection = await this.actorRepository.findConnectionBetweenActors(
+          viewerActor.id,
+          actor.id,
+        );
+        viewerConnection = connection
+          ? {
+              connection_id: connection.id,
+              status: connection.status,
+              direction: connection.requesterActorId === viewerActor.id ? 'OUTGOING' : 'INCOMING',
+            }
+          : null;
+      }
+    }
+
     return this.mapActorDto(actor, actor.userAccount?.username ?? 'usuario', {
       includeEmail: false,
       stats,
+      viewerConnection,
     });
+  }
+
+  async listFollowers(actorId: string, query: PaginationQueryDto): Promise<ActorsPageDto> {
+    const actor = await this.actorRepository.findById(actorId);
+    if (!actor) {
+      throw new NotFoundException('El perfil Actor solicitado no existe.');
+    }
+
+    if (!this.actorRepository.listFollowers) {
+      return {
+        data: [],
+        meta: buildPaginationMeta(query.page, query.limit, 0),
+      };
+    }
+
+    const { items, total } = await this.actorRepository.listFollowers(
+      actor.id,
+      query.skip,
+      query.limit,
+    );
+
+    return {
+      data: items.map((item) =>
+        this.mapActorDto(item, item.userAccount?.username ?? 'usuario', { includeEmail: false }),
+      ),
+      meta: buildPaginationMeta(query.page, query.limit, total),
+    };
+  }
+
+  async listFollowing(actorId: string, query: PaginationQueryDto): Promise<ActorsPageDto> {
+    const actor = await this.actorRepository.findById(actorId);
+    if (!actor) {
+      throw new NotFoundException('El perfil Actor solicitado no existe.');
+    }
+
+    if (!this.actorRepository.listFollowing) {
+      return {
+        data: [],
+        meta: buildPaginationMeta(query.page, query.limit, 0),
+      };
+    }
+
+    const { items, total } = await this.actorRepository.listFollowing(
+      actor.id,
+      query.skip,
+      query.limit,
+    );
+
+    return {
+      data: items.map((item) =>
+        this.mapActorDto(item, item.userAccount?.username ?? 'usuario', { includeEmail: false }),
+      ),
+      meta: buildPaginationMeta(query.page, query.limit, total),
+    };
   }
 
   async createConnection(
@@ -154,7 +276,7 @@ export class ActorsService {
 
   async listMyConnections(
     session: SessionContext,
-    query: PaginationQueryDto,
+    query: ListConnectionsQueryDto,
   ): Promise<ActorConnectionsPageDto> {
     const userAccountId = this.requireRegisteredUser(session);
     const myActor = await this.actorRepository.ensureForUserAccount(
@@ -166,11 +288,46 @@ export class ActorsService {
       myActor.id,
       query.skip,
       query.limit,
+      {
+        status: query.status,
+        direction: query.direction,
+      },
     );
 
     return {
-      data: items.map((c) => this.mapConnectionDto(c)),
+      data: items.map((c) => this.mapConnectionDto(c, myActor.id)),
       meta: buildPaginationMeta(query.page, query.limit, total),
+    };
+  }
+
+  async deleteConnection(
+    session: SessionContext,
+    connectionId: string,
+  ): Promise<DeleteConnectionResponseDto> {
+    const userAccountId = this.requireRegisteredUser(session);
+    const myActor = await this.actorRepository.ensureForUserAccount(
+      userAccountId,
+      session.rol ?? 'ACUDIENTE',
+    );
+
+    const existing = await this.actorRepository.findConnectionById(connectionId);
+    if (!existing) {
+      throw new NotFoundException('La conexión solicitada no existe.');
+    }
+
+    const isParticipant =
+      existing.receiverActorId === myActor.id || existing.requesterActorId === myActor.id;
+    if (!isParticipant) {
+      throw new ForbiddenException('No tiene permisos para eliminar esta conexión.');
+    }
+
+    if (this.actorRepository.deleteConnection) {
+      await this.actorRepository.deleteConnection(connectionId);
+    }
+
+    return {
+      id: connectionId,
+      deleted: true,
     };
   }
 
@@ -189,6 +346,7 @@ export class ActorsService {
     options?: {
       includeEmail?: boolean;
       stats?: { postsCount: number; followersCount: number; followingCount: number };
+      viewerConnection?: ViewerConnectionStatusDto | null;
     },
   ): ActorProfileResponseDto {
     const isOwner = Boolean(options?.includeEmail);
@@ -224,17 +382,47 @@ export class ActorsService {
             following_count: options.stats.followingCount,
           }
         : {}),
+      ...(options?.viewerConnection !== undefined
+        ? { viewer_connection: options.viewerConnection }
+        : {}),
       created_at: actor.createdAt.toISOString(),
       updated_at: actor.updatedAt.toISOString(),
     };
   }
 
-  private mapConnectionDto(connection: ActorConnection): ActorConnectionResponseDto {
+  private mapConnectionDto(
+    connection: ActorConnection,
+    viewerActorId?: string,
+  ): ActorConnectionResponseDto {
+    const peerActorEntity =
+      viewerActorId !== undefined
+        ? connection.requesterActorId === viewerActorId
+          ? connection.receiverActor
+          : connection.requesterActor
+        : undefined;
+
+    let peerActor: ConnectionPeerActorDto | undefined;
+    if (peerActorEntity) {
+      const fullName = [peerActorEntity.firstNames, peerActorEntity.lastNames]
+        .filter((part): part is string => Boolean(part && part.trim().length > 0))
+        .join(' ')
+        .trim();
+      const username = peerActorEntity.userAccount?.username ?? 'usuario';
+      peerActor = {
+        actor_id: peerActorEntity.id,
+        username,
+        display_name: fullName.length > 0 ? fullName : username,
+        primary_role: peerActorEntity.primaryRole,
+        avatar_url: peerActorEntity.avatarUrl ?? null,
+      };
+    }
+
     return {
       id: connection.id,
       requester_actor_id: connection.requesterActorId,
       receiver_actor_id: connection.receiverActorId,
       status: connection.status,
+      ...(peerActor ? { peer_actor: peerActor } : {}),
       requested_at: connection.requestedAt.toISOString(),
       accepted_at: connection.acceptedAt ? connection.acceptedAt.toISOString() : null,
     };
