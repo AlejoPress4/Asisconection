@@ -133,6 +133,8 @@ export class AssistantService {
 
     return {
       whatsapp_url: `https://wa.me/${phone}?text=${encodeURIComponent(composedMessage)}`,
+      phone,
+      message: composedMessage,
       support_message: WHATSAPP_SUPPORT_NOTICE,
     };
   }

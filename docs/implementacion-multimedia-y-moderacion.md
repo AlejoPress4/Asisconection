@@ -90,22 +90,21 @@ El backend de AsisConexión fue enriquecido con tres capacidades fundamentales p
 
 ---
 
-## 3. Lógica de Moderación en Dos Capas y Auto-aprobación
+## 3. Lógica de Filtro Automático y Aprobación Directa (+ Reportes Comunitarios)
 
-En concordancia con el principio constitucional RN-02 y la Ley 1581 de 2012, el flujo de creación de publicaciones y comentarios opera de la siguiente manera:
+En concordancia con la Ley 1581 de 2012 y Ley 1098 de 2006, el flujo de creación y edición de publicaciones y comentarios opera con protección automática síncrona y publicación inmediata:
 
 ```mermaid
 flowchart TD
-    A["Petición POST /posts ó /comments"] --> B["ContentFilterService (Groserías / Datos sensibles / Spam)"]
+    A["Petición POST/PATCH /posts ó POST /comments"] --> B["ContentFilterService (Groserías / Enlaces externos / Datos de menores / Spam)"]
     B -->|Detecta Infracción| C["Status: REJECTED (rejection_reason: AUTO_FILTER)"]
-    B -->|Limpio| D{"¿Autor posee rol ADMIN o MODERATOR?"}
-    D -->|Sí| E["Status: APPROVED (Publicación Inmediata)"]
-    D -->|No| F["Status: PENDING (Cola de Moderación Humana)"]
+    B -->|Limpio| D["Status: APPROVED (Publicación Inmediata en el Foro)"]
+    D --> E["Moderación Reactiva: Reportes Comunitarios (POST /v1/reports) o Eliminación por ADMIN/MODERATOR"]
 ```
 
-1. **Filtro Automático:** Todo texto es evaluado por `ContentFilterService` (patrón extensible OCP). Si infringe políticas comunitarias, se rechaza de inmediato con `status = 'REJECTED'` y mensaje explicativo al usuario.
-2. **Evaluación de Roles Privilegiados:** Si el contenido es seguro y el emisor posee rol `ADMIN` (local o externo) o `MODERATOR` asignado por un administrador, el estado asignado es `ModerationStatus.APPROVED`.
-3. **Usuarios Comunes:** El contenido seguro de usuarios regulares nace en `ModerationStatus.PENDING` para revisión en la bandeja de moderación humana (`GET /v1/admin/moderation/pending`).
+1. **Filtro Automático Síncrono (`ContentFilterService`):** Todo texto es evaluado por las reglas `ProfanityContentRule`, `ExternalLinkContentRule`, `MinorDataContentRule` y `SpamContentRule` (patrón extensible OCP). Si infringe políticas comunitarias, se rechaza de inmediato con `status = 'REJECTED'` y `rejection_reason = 'AUTO_FILTER'`.
+2. **Aprobación Directa (`ModerationStatus.APPROVED`):** Toda publicación o comentario que supera el filtro automático entra directamente con `status = 'APPROVED'` para una experiencia fluida en tiempo real.
+3. **Moderación Reactiva y Reportes Comunitarios (`CU-05`):** Cualquier miembro puede reportar contenido (`POST /v1/reports`), y los usuarios con rol `ADMIN` o `MODERATOR` pueden resolver reportes (`PATCH /v1/admin/moderation/reports/:id/resolve`), cambiar el estado (`PATCH /v1/admin/moderation/posts|comments/:id/status`) o eliminar contenido (`DELETE /v1/posts/:id`, `DELETE /v1/comments/:id`).
 4. **Consentimiento Legal Requerido:** Si una publicación adjunta imágenes (`media_urls.length > 0`), se exige que el usuario tenga registrado `session.consentAcceptedAt !== null` conforme a Ley 1581 y Ley 1098. En caso contrario, se rechaza con `403 Forbidden`.
 
 ---

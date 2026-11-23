@@ -74,6 +74,10 @@ export interface AuthorSourceFields {
   readonly userAccountId: string | null;
   readonly actorId?: string | null;
   readonly avatarUrl?: string | null;
+  readonly firstNames?: string | null;
+  readonly lastNames?: string | null;
+  readonly primaryRole?: string | null;
+  readonly localRole?: string | null;
   readonly username: string | null;
   readonly rol: string | null;
   readonly nickname: string | null;
@@ -81,10 +85,26 @@ export interface AuthorSourceFields {
 }
 
 export function buildAuthorBadge(source: AuthorSourceFields): AuthorBadgeDto {
+  const fullName = [source.firstNames?.trim(), source.lastNames?.trim()]
+    .filter((part): part is string => Boolean(part && part.length > 0))
+    .join(' ')
+    .trim();
+
+  const displayName =
+    fullName.length > 0 ? fullName : (source.username ?? source.nickname ?? 'Participante');
+
+  let roleLabel = source.primaryRole ?? source.rol ?? source.roleTag ?? 'VISITANTE';
+  if (source.rol === 'ADMIN') {
+    roleLabel = 'ADMIN';
+  } else if (source.localRole === 'MODERATOR') {
+    roleLabel = 'MODERATOR';
+  }
+
   return {
     ...(source.actorId !== undefined ? { actor_id: source.actorId } : {}),
-    display_name: source.username ?? source.nickname ?? 'Participante',
-    role_label: source.rol ?? source.roleTag ?? 'VISITANTE',
+    ...(source.username ? { username: source.username } : {}),
+    display_name: displayName,
+    role_label: roleLabel,
     ...(source.avatarUrl !== undefined ? { avatar_url: source.avatarUrl } : {}),
     is_registered: source.userAccountId !== null,
   };
@@ -264,6 +284,7 @@ export class PostsService {
   async listApprovedComments(
     postId: string,
     query: PaginationQueryDto,
+    viewerSession?: SessionContext,
   ): Promise<CommentsPageDto> {
     const postStatus = await this.postRepository.findStatusById(postId);
     if (postStatus !== ModerationStatus.APPROVED) {
@@ -281,6 +302,8 @@ export class PostsService {
       postId,
       query.skip,
       query.limit,
+      viewerSession?.sessionId,
+      viewerSession?.userAccountId,
     );
 
     return {
@@ -290,6 +313,7 @@ export class PostsService {
         content: comment.content,
         author: buildAuthorBadge(comment),
         likes_count: comment.likesCount ?? 0,
+        ...(comment.likedByMe !== undefined ? { liked_by_me: comment.likedByMe } : {}),
         created_at: comment.createdAt.toISOString(),
       })),
       meta: buildPaginationMeta(query.page, query.limit, total),
@@ -682,10 +706,8 @@ export class PostsService {
     let initialStatus: ModerationStatus;
     if (filterEvaluation?.status === ModerationStatus.REJECTED) {
       initialStatus = ModerationStatus.REJECTED;
-    } else if (this.isPrivilegedModerator(session)) {
-      initialStatus = ModerationStatus.APPROVED;
     } else {
-      initialStatus = ModerationStatus.PENDING;
+      initialStatus = ModerationStatus.APPROVED;
     }
     const rejectionReason = filterEvaluation?.rejectionReason ?? null;
 
@@ -801,6 +823,19 @@ export class PostsService {
           type: item.notif_type,
           title: item.title,
           body: item.body,
+          ...(item.actor_id !== undefined ? { actor_id: item.actor_id } : {}),
+          ...(item.actor_name !== undefined ? { actor_name: item.actor_name } : {}),
+          ...(item.actor_avatar_url !== undefined
+            ? { actor_avatar_url: item.actor_avatar_url }
+            : {}),
+          ...(item.post_id !== undefined ? { post_id: item.post_id } : {}),
+          ...(item.comment_id !== undefined ? { comment_id: item.comment_id } : {}),
+          ...(item.connection_id !== undefined ? { connection_id: item.connection_id } : {}),
+          ...(item.connection_status !== undefined
+            ? { connection_status: item.connection_status }
+            : {}),
+          ...(item.category_name !== undefined ? { category_name: item.category_name } : {}),
+          ...(item.snippet !== undefined ? { snippet: item.snippet } : {}),
           is_read: isRead,
           created_at: itemCreated.toISOString(),
         };

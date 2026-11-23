@@ -12,6 +12,10 @@ export interface ApprovedPostProjection {
   readonly userAccountId: string | null;
   readonly actorId?: string | null;
   readonly avatarUrl?: string | null;
+  readonly firstNames?: string | null;
+  readonly lastNames?: string | null;
+  readonly primaryRole?: string | null;
+  readonly localRole?: string | null;
   readonly username: string | null;
   readonly rol: string | null;
   readonly nickname: string | null;
@@ -27,11 +31,16 @@ export interface ApprovedCommentProjection {
   readonly userAccountId: string | null;
   readonly actorId?: string | null;
   readonly avatarUrl?: string | null;
+  readonly firstNames?: string | null;
+  readonly lastNames?: string | null;
+  readonly primaryRole?: string | null;
+  readonly localRole?: string | null;
   readonly username: string | null;
   readonly rol: string | null;
   readonly nickname: string | null;
   readonly roleTag: string | null;
   readonly likesCount?: number;
+  readonly likedByMe?: boolean;
 }
 
 export interface ReactionCountsMap {
@@ -77,16 +86,28 @@ export interface MyPostSubmissionProjection {
   readonly updatedAt: Date;
 }
 
+export type NotificationEventType =
+  | 'COMMENT_ON_POST'
+  | 'REPLY_TO_COMMENT'
+  | 'LIKE_ON_POST'
+  | 'LIKE_ON_COMMENT'
+  | 'FOUNDATION_ANNOUNCEMENT'
+  | 'NEW_FOLLOWER';
+
 export interface RawAggregatedNotificationRow {
   readonly id: string;
-  readonly notif_type:
-    | 'COMMENT_ON_POST'
-    | 'REPLY_TO_COMMENT'
-    | 'LIKE_ON_POST'
-    | 'FOUNDATION_ANNOUNCEMENT'
-    | 'NEW_FOLLOWER';
+  readonly notif_type: NotificationEventType;
   readonly title: string;
   readonly body: string;
+  readonly actor_id?: string | null;
+  readonly actor_name?: string | null;
+  readonly actor_avatar_url?: string | null;
+  readonly post_id?: string | null;
+  readonly comment_id?: string | null;
+  readonly connection_id?: string | null;
+  readonly connection_status?: string | null;
+  readonly category_name?: string | null;
+  readonly snippet?: string | null;
   readonly created_at: Date;
 }
 

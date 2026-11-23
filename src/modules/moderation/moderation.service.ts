@@ -114,6 +114,8 @@ export class ModerationService {
       email: item.email,
       rol: item.rol,
       local_role: item.localRole,
+      display_name: item.displayName ?? null,
+      avatar_url: item.avatarUrl ?? null,
     }));
   }
 
@@ -131,6 +133,8 @@ export class ModerationService {
       email: updated.email,
       rol: updated.rol,
       local_role: updated.localRole,
+      display_name: updated.displayName ?? null,
+      avatar_url: updated.avatarUrl ?? null,
     };
   }
 
@@ -148,6 +152,8 @@ export class ModerationService {
       email: updated.email,
       rol: updated.rol,
       local_role: updated.localRole,
+      display_name: updated.displayName ?? null,
+      avatar_url: updated.avatarUrl ?? null,
     };
   }
 

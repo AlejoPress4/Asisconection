@@ -1346,6 +1346,24 @@ describe('Contract & E2E — AsisConexión MVP v2 (US1–US6, Render Auth, Actor
     const postBody = postRes.body as { id: string; status: string };
     expect(postBody.status).toBe('APPROVED');
 
+    // 4b. Comentario con palabra vulgar es rechazado por ContentFilterService (AUTO_FILTER) y comentario limpio entra directo como APPROVED
+    const rejectedCommentRes = await request(httpServer)
+      .post(`/v1/posts/${postBody.id}/comments`)
+      .set('Authorization', `Bearer ${regBody.device_token}`)
+      .send({ content: 'Eso fue una mierda total' })
+      .expect(201);
+    expect(rejectedCommentRes.body).toMatchObject({
+      status: 'REJECTED',
+      rejection_reason: 'AUTO_FILTER',
+    });
+
+    const approvedCommentRes = await request(httpServer)
+      .post(`/v1/posts/${postBody.id}/comments`)
+      .set('Authorization', `Bearer ${regBody.device_token}`)
+      .send({ content: 'Muchas gracias por compartir esta experiencia tan valiosa.' })
+      .expect(201);
+    expect((approvedCommentRes.body as { status: string }).status).toBe('APPROVED');
+
     // 5. Login de ADMIN en /v1/auth/login y promoción de lucia.acudiente a MODERATOR global
     const adminLogin = await request(httpServer)
       .post('/v1/auth/login')

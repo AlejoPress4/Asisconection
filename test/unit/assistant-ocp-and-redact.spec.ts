@@ -99,7 +99,7 @@ describe('Unit — Seguridad Constitucional, Filtro Automático (OCP) y Asistent
     expect(filter.evaluate('aaaaaaaaaaaaaaa texto repetido').triggeredRule).toBe('SPAM');
   });
 
-  it('buildAuthorBadge incluye actor_id y avatar_url cuando están presentes', () => {
+  it('buildAuthorBadge incluye actor_id, username y avatar_url cuando están presentes y prioriza nombre completo y localRole', () => {
     expect(
       buildAuthorBadge({
         userAccountId: 'u-1',
@@ -112,9 +112,30 @@ describe('Unit — Seguridad Constitucional, Filtro Automático (OCP) y Asistent
       }),
     ).toEqual({
       actor_id: 'actor-1',
+      username: 'lucia.acudiente',
       display_name: 'lucia.acudiente',
       role_label: 'ACUDIENTE',
       avatar_url: 'https://cdn.asisco.org/avatar.jpg',
+      is_registered: true,
+    });
+
+    expect(
+      buildAuthorBadge({
+        userAccountId: 'u-1',
+        actorId: 'actor-1',
+        firstNames: 'Lucía',
+        lastNames: 'Pineda',
+        localRole: 'MODERATOR',
+        username: 'lucia.acudiente',
+        rol: 'ACUDIENTE',
+        nickname: null,
+        roleTag: null,
+      }),
+    ).toEqual({
+      actor_id: 'actor-1',
+      username: 'lucia.acudiente',
+      display_name: 'Lucía Pineda',
+      role_label: 'MODERATOR',
       is_registered: true,
     });
   });

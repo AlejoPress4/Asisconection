@@ -20,6 +20,8 @@ export interface ICommentRepository {
     postId: string,
     skip: number,
     take: number,
+    viewerDeviceId?: string,
+    viewerUserAccountId?: string | null,
   ): Promise<{ items: ApprovedCommentProjection[]; total: number }>;
   countCommentsByDeviceSince?(deviceId: string, since: Date): Promise<number>;
 }

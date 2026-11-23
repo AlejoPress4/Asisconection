@@ -27,6 +27,12 @@ interface RawPendingRow {
   readonly image_url: string | null;
   readonly device_id: string;
   readonly user_account_id: string | null;
+  readonly actor_id?: string | null;
+  readonly avatar_url?: string | null;
+  readonly first_names?: string | null;
+  readonly last_names?: string | null;
+  readonly primary_role?: string | null;
+  readonly local_role?: string | null;
   readonly username: string | null;
   readonly rol: string | null;
   readonly nickname: string | null;
@@ -103,6 +109,12 @@ function mapRawPendingRow(row: RawPendingRow): PendingModerationRow {
     imageUrl: row.image_url,
     deviceId: row.device_id,
     userAccountId: row.user_account_id,
+    actorId: row.actor_id ?? null,
+    avatarUrl: row.avatar_url ?? null,
+    firstNames: row.first_names ?? null,
+    lastNames: row.last_names ?? null,
+    primaryRole: row.primary_role ?? null,
+    localRole: row.local_role ?? null,
     username: row.username,
     rol: row.rol,
     nickname: row.nickname,
@@ -173,6 +185,12 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
               p.image_url,
               p.device_id,
               p.user_account_id,
+              a.id AS actor_id,
+              a.avatar_url,
+              a.first_names,
+              a.last_names,
+              a.primary_role,
+              ua.local_role,
               ua.username,
               ua.rol,
               ds.nickname,
@@ -181,6 +199,7 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
             FROM posts p
             LEFT JOIN device_sessions ds ON ds.id = p.device_id
             LEFT JOIN user_accounts ua ON ua.id = p.user_account_id
+            LEFT JOIN actors a ON a.user_account_id = p.user_account_id
             WHERE p.status = $1::"public"."moderation_status_enum"
             ORDER BY p.created_at ASC
             LIMIT $2 OFFSET $3
@@ -212,6 +231,12 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
               NULL::varchar AS image_url,
               c.device_id,
               c.user_account_id,
+              a.id AS actor_id,
+              a.avatar_url,
+              a.first_names,
+              a.last_names,
+              a.primary_role,
+              ua.local_role,
               ua.username,
               ua.rol,
               ds.nickname,
@@ -220,6 +245,7 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
             FROM comments c
             LEFT JOIN device_sessions ds ON ds.id = c.device_id
             LEFT JOIN user_accounts ua ON ua.id = c.user_account_id
+            LEFT JOIN actors a ON a.user_account_id = c.user_account_id
             WHERE c.status = $1::"public"."moderation_status_enum"
             ORDER BY c.created_at ASC
             LIMIT $2 OFFSET $3
@@ -251,6 +277,12 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
               p.image_url,
               p.device_id,
               p.user_account_id,
+              a.id AS actor_id,
+              a.avatar_url,
+              a.first_names,
+              a.last_names,
+              a.primary_role,
+              ua.local_role,
               ua.username,
               ua.rol,
               ds.nickname,
@@ -259,6 +291,7 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
             FROM posts p
             LEFT JOIN device_sessions ds ON ds.id = p.device_id
             LEFT JOIN user_accounts ua ON ua.id = p.user_account_id
+            LEFT JOIN actors a ON a.user_account_id = p.user_account_id
             WHERE p.status = $1::"public"."moderation_status_enum"
 
             UNION ALL
@@ -272,6 +305,12 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
               NULL::varchar AS image_url,
               c.device_id,
               c.user_account_id,
+              a.id AS actor_id,
+              a.avatar_url,
+              a.first_names,
+              a.last_names,
+              a.primary_role,
+              ua.local_role,
               ua.username,
               ua.rol,
               ds.nickname,
@@ -280,6 +319,7 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
             FROM comments c
             LEFT JOIN device_sessions ds ON ds.id = c.device_id
             LEFT JOIN user_accounts ua ON ua.id = c.user_account_id
+            LEFT JOIN actors a ON a.user_account_id = c.user_account_id
             WHERE c.status = $1::"public"."moderation_status_enum"
           ) AS combined
           ORDER BY combined.created_at ASC
@@ -418,10 +458,13 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
   async listModerators(): Promise<ModeratorAccountRecord[]> {
     const rows = await this.dataSource.query<RawModeratorRow[]>(
       `
-        SELECT id, username, email, rol, local_role
-        FROM user_accounts
-        WHERE local_role = 'MODERATOR' AND is_active = true
-        ORDER BY username ASC
+        SELECT ua.id, ua.username, ua.email, ua.rol, ua.local_role,
+               COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username) AS display_name,
+               a.avatar_url
+        FROM user_accounts ua
+        LEFT JOIN actors a ON a.user_account_id = ua.id
+        WHERE ua.local_role = 'MODERATOR' AND ua.is_active = true
+        ORDER BY ua.username ASC
       `,
     );
 
@@ -431,6 +474,8 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
       email: r.email,
       rol: r.rol,
       localRole: r.local_role,
+      displayName: r.display_name ?? null,
+      avatarUrl: r.avatar_url ?? null,
     }));
   }
 
@@ -440,10 +485,17 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
   ): Promise<ModeratorAccountRecord | null> {
     const rows = await this.dataSource.query<RawModeratorRow[]>(
       `
-        UPDATE user_accounts
-        SET local_role = $2
-        WHERE id = $1
-        RETURNING id, username, email, rol, local_role
+        WITH updated AS (
+          UPDATE user_accounts
+          SET local_role = $2
+          WHERE id = $1
+          RETURNING id, username, email, rol, local_role
+        )
+        SELECT u.id, u.username, u.email, u.rol, u.local_role,
+               COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), u.username) AS display_name,
+               a.avatar_url
+        FROM updated u
+        LEFT JOIN actors a ON a.user_account_id = u.id
       `,
       [userAccountId, localRole],
     );
@@ -459,6 +511,8 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
       email: row.email,
       rol: row.rol,
       localRole: row.local_role,
+      displayName: row.display_name ?? null,
+      avatarUrl: row.avatar_url ?? null,
     };
   }
 

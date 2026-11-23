@@ -20,6 +20,16 @@ export class EscalateResponseDto {
   whatsapp_url!: string;
 
   @ApiProperty({
+    example: '573001234567',
+  })
+  phone!: string;
+
+  @ApiProperty({
+    example: 'Hola Fundación Asisco, requiero acompañamiento humano desde AsisConexión.',
+  })
+  message!: string;
+
+  @ApiProperty({
     example: 'Serás redirigido de forma nativa al canal humano oficial en WhatsApp.',
   })
   support_message!: string;

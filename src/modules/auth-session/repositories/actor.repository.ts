@@ -93,13 +93,17 @@ export class ActorRepository implements IActorRepository, OnModuleInit {
     const current = await this.ensureForUserAccount(userAccountId, defaultRole);
     const merged = this.actorRepo.merge(current, {
       primaryRole: fields.primaryRole !== undefined ? fields.primaryRole.trim() : current.primaryRole,
-      firstNames: fields.firstNames !== undefined ? fields.firstNames.trim() : current.firstNames,
-      lastNames: fields.lastNames !== undefined ? fields.lastNames.trim() : current.lastNames,
-      avatarUrl: fields.avatarUrl !== undefined ? fields.avatarUrl.trim() : current.avatarUrl,
-      shortBio: fields.shortBio !== undefined ? fields.shortBio.trim() : current.shortBio,
+      firstNames:
+        fields.firstNames !== undefined ? (fields.firstNames?.trim() || null) : current.firstNames,
+      lastNames:
+        fields.lastNames !== undefined ? (fields.lastNames?.trim() || null) : current.lastNames,
+      avatarUrl:
+        fields.avatarUrl !== undefined ? (fields.avatarUrl?.trim() || null) : current.avatarUrl,
+      shortBio:
+        fields.shortBio !== undefined ? (fields.shortBio?.trim() || null) : current.shortBio,
       birthDate:
-        fields.birthDate !== undefined ? (fields.birthDate?.trim() ?? null) : current.birthDate,
-      city: fields.city !== undefined ? (fields.city?.trim() ?? null) : current.city,
+        fields.birthDate !== undefined ? (fields.birthDate?.trim() || null) : current.birthDate,
+      city: fields.city !== undefined ? (fields.city?.trim() || null) : current.city,
       showEmail: fields.showEmail !== undefined ? fields.showEmail : current.showEmail,
       showBirthDate:
         fields.showBirthDate !== undefined ? fields.showBirthDate : current.showBirthDate,

@@ -15,11 +15,16 @@ interface RawApprovedCommentRow {
   readonly user_account_id: string | null;
   readonly actor_id: string | null;
   readonly avatar_url: string | null;
+  readonly first_names: string | null;
+  readonly last_names: string | null;
+  readonly primary_role: string | null;
+  readonly local_role: string | null;
   readonly username: string | null;
   readonly rol: string | null;
   readonly nickname: string | null;
   readonly role_tag: string | null;
   readonly likes_count: number | string;
+  readonly liked_by_me?: boolean;
 }
 
 interface RawCountRow {
@@ -42,7 +47,7 @@ export class CommentRepository implements ICommentRepository {
       deviceId: data.deviceId,
       userAccountId: data.userAccountId,
       content: data.content,
-      status: data.status ?? ModerationStatus.PENDING,
+      status: data.status ?? ModerationStatus.APPROVED,
       rejectionReason: data.rejectionReason ?? null,
     });
     return this.repository.save(entity);
@@ -62,6 +67,8 @@ export class CommentRepository implements ICommentRepository {
     postId: string,
     skip: number,
     take: number,
+    viewerDeviceId?: string,
+    viewerUserAccountId?: string | null,
   ): Promise<{ items: ApprovedCommentProjection[]; total: number }> {
     const [rows, countRows] = await Promise.all([
       this.dataSource.query<RawApprovedCommentRow[]>(
@@ -75,11 +82,27 @@ export class CommentRepository implements ICommentRepository {
             c.user_account_id,
             a.id AS actor_id,
             a.avatar_url,
+            a.first_names,
+            a.last_names,
+            a.primary_role,
+            ua.local_role,
             ua.username,
             ua.rol,
             ds.nickname,
             ds.role_tag,
-            COALESCE(cr.likes_count, 0)::int AS likes_count
+            COALESCE(cr.likes_count, 0)::int AS likes_count,
+            CASE
+              WHEN $5::uuid IS NOT NULL THEN EXISTS (
+                SELECT 1
+                FROM comment_reactions my_cr
+                WHERE my_cr.comment_id = c.id
+                  AND (
+                    my_cr.device_id = $5::uuid
+                    OR ($6::uuid IS NOT NULL AND my_cr.user_account_id = $6::uuid)
+                  )
+              )
+              ELSE false
+            END AS liked_by_me
           FROM comments c
           LEFT JOIN comments parent_c ON parent_c.id = c.parent_id
           LEFT JOIN device_sessions ds ON ds.id = c.device_id
@@ -97,7 +120,14 @@ export class CommentRepository implements ICommentRepository {
           OFFSET $3
           LIMIT $4
         `,
-        [postId, ModerationStatus.APPROVED, skip, take],
+        [
+          postId,
+          ModerationStatus.APPROVED,
+          skip,
+          take,
+          viewerDeviceId ?? null,
+          viewerUserAccountId ?? null,
+        ],
       ),
       this.dataSource.query<RawCountRow[]>(
         `
@@ -121,11 +151,16 @@ export class CommentRepository implements ICommentRepository {
       userAccountId: row.user_account_id,
       actorId: row.actor_id,
       avatarUrl: row.avatar_url,
+      firstNames: row.first_names,
+      lastNames: row.last_names,
+      primaryRole: row.primary_role,
+      localRole: row.local_role,
       username: row.username,
       rol: row.rol,
       nickname: row.nickname,
       roleTag: row.role_tag,
       likesCount: Number(row.likes_count ?? 0),
+      likedByMe: Boolean(row.liked_by_me),
     }));
 
     return {

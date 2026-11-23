@@ -9,6 +9,36 @@ interface FaqSeedItem {
 
 const DEFAULT_FAQS: ReadonlyArray<FaqSeedItem> = [
   {
+    category: 'Sobre el síndrome de Down',
+    question: '¿Qué es el síndrome de Down y cómo acompaña ASISCO UP a las familias?',
+    answer:
+      'El síndrome de Down (trisomía 21) es una condición genética natural, no una enfermedad. En la Fundación ASISCO UP acompañamos a cada persona y su familia desde la primera infancia hasta la vida adulta con programas pedagógicos, artísticos y comunitarios.',
+  },
+  {
+    category: 'Citas y terapias en ASISCO UP',
+    question: '¿Cómo agendo una cita de valoración o acompañamiento en ASISCO UP?',
+    answer:
+      'Puedes solicitar tu cita inicial comunicándote por nuestro canal oficial de WhatsApp desde el botón «Hablar con una persona» o acercándote a la sede principal en Manizales con el documento de identidad del beneficiario y del acudiente.',
+  },
+  {
+    category: 'Derechos, EPS y trámites',
+    question: '¿Cómo gestionar autorizaciones de terapias integrales ante la EPS?',
+    answer:
+      'En Colombia, la Ley Estatutaria de Salud y la Ley 1618 garantizan la atención integral sin barreras administrativas. Conserva la orden médica con el plan terapéutico detallado y, si requieres orientación en derechos o tutelas, nuestro equipo de apoyo familiar te asesora gratuitamente.',
+  },
+  {
+    category: 'Desarrollo y crianza',
+    question: '¿Qué actividades de estimulación temprana puedo realizar en casa?',
+    answer:
+      'Prioriza rutinas cortas de juego sensorial, lectura compartida, canciones con gestos y fortalecimiento motriz respetando el ritmo propio de tu hijo o hija. En la categoría Guías del foro encontrarás ejercicios recomendados por nuestras terapeutas.',
+  },
+  {
+    category: 'Talleres y comunidad',
+    question: '¿Cuándo se realizan los talleres artísticos y encuentros de familias?',
+    answer:
+      'Los talleres de SON UP, lectura compartida y escuela de familias se publican semanalmente en la categoría Avisos del foro. Todas las familias registradas en AsisConexión pueden participar sin costo.',
+  },
+  {
     category: 'Inscripciones',
     question: '¿Cómo inscribo a un beneficiario en los programas de la Fundación Asisco?',
     answer:
@@ -25,12 +55,6 @@ const DEFAULT_FAQS: ReadonlyArray<FaqSeedItem> = [
     question: '¿Qué diferencia existe entre SUMA 21, AULA UP y SAGA-UP?',
     answer:
       'SUMA 21 articula procesos de inclusión social y formación integral; AULA UP ofrece acompañamiento pedagógico virtual; y SAGA-UP gestiona el seguimiento académico e institucional de los participantes.',
-  },
-  {
-    category: 'Programas',
-    question: '¿Por qué mi publicación o comentario no aparece inmediatamente en el foro?',
-    answer:
-      'Para proteger a niños, niñas, adolescentes y familias (Ley 1098 de 2006 y regla RN-02), toda publicación y comentario pasa por moderación humana del equipo administrador antes de hacerse visible.',
   },
   {
     category: 'Voluntariado',

@@ -37,6 +37,10 @@ interface RawRecentCommentRow {
   readonly user_account_id: string | null;
   readonly actor_id: string | null;
   readonly avatar_url: string | null;
+  readonly first_names: string | null;
+  readonly last_names: string | null;
+  readonly primary_role: string | null;
+  readonly local_role: string | null;
   readonly username: string | null;
   readonly rol: string | null;
   readonly nickname: string | null;
@@ -47,6 +51,9 @@ interface RawActorLookupRow {
   readonly user_account_id: string;
   readonly id: string;
   readonly avatar_url: string | null;
+  readonly first_names: string | null;
+  readonly last_names: string | null;
+  readonly primary_role: string | null;
 }
 
 interface RawPostMediaRow {
@@ -128,6 +135,7 @@ export class PostRepository implements IPostRepository, OnModuleInit {
         'ua.id',
         'ua.username',
         'ua.rol',
+        'ua.localRole',
       ])
       .where('p.status = :approvedStatus', { approvedStatus: ModerationStatus.APPROVED });
 
@@ -179,7 +187,16 @@ export class PostRepository implements IPostRepository, OnModuleInit {
   ): Promise<ApprovedPostProjection[]> {
     const postIds = entities.map((p) => p.id);
     const mediaMap = new Map<string, string[]>();
-    const actorMap = new Map<string, { id: string; avatarUrl: string | null }>();
+    const actorMap = new Map<
+      string,
+      {
+        id: string;
+        avatarUrl: string | null;
+        firstNames: string | null;
+        lastNames: string | null;
+        primaryRole: string | null;
+      }
+    >();
 
     const userAccountIds = Array.from(
       new Set(
@@ -192,14 +209,20 @@ export class PostRepository implements IPostRepository, OnModuleInit {
     if (userAccountIds.length > 0) {
       const actorRows = await this.dataSource.query<RawActorLookupRow[]>(
         `
-          SELECT user_account_id, id, avatar_url
+          SELECT user_account_id, id, avatar_url, first_names, last_names, primary_role
           FROM actors
           WHERE user_account_id = ANY($1::uuid[])
         `,
         [userAccountIds],
       );
       for (const row of actorRows) {
-        actorMap.set(row.user_account_id, { id: row.id, avatarUrl: row.avatar_url });
+        actorMap.set(row.user_account_id, {
+          id: row.id,
+          avatarUrl: row.avatar_url,
+          firstNames: row.first_names,
+          lastNames: row.last_names,
+          primaryRole: row.primary_role,
+        });
       }
     }
 
@@ -233,6 +256,10 @@ export class PostRepository implements IPostRepository, OnModuleInit {
         userAccountId: post.userAccountId,
         actorId: actor?.id ?? null,
         avatarUrl: actor?.avatarUrl ?? null,
+        firstNames: actor?.firstNames ?? null,
+        lastNames: actor?.lastNames ?? null,
+        primaryRole: actor?.primaryRole ?? null,
+        localRole: post.userAccount?.localRole ?? null,
         username: post.userAccount?.username ?? null,
         rol: post.userAccount?.rol ?? null,
         nickname: post.device?.nickname ?? null,
@@ -259,6 +286,7 @@ export class PostRepository implements IPostRepository, OnModuleInit {
         'ua.id',
         'ua.username',
         'ua.rol',
+        'ua.localRole',
       ])
       .where('p.id = :postId AND p.status = :approvedStatus', {
         postId,
@@ -519,6 +547,7 @@ export class PostRepository implements IPostRepository, OnModuleInit {
         'ua.id',
         'ua.username',
         'ua.rol',
+        'ua.localRole',
       ])
       .where('p.status = :approvedStatus', { approvedStatus: ModerationStatus.APPROVED });
 
@@ -613,6 +642,10 @@ export class PostRepository implements IPostRepository, OnModuleInit {
           ranked.user_account_id,
           ranked.actor_id,
           ranked.avatar_url,
+          ranked.first_names,
+          ranked.last_names,
+          ranked.primary_role,
+          ranked.local_role,
           ranked.username,
           ranked.rol,
           ranked.nickname,
@@ -627,6 +660,10 @@ export class PostRepository implements IPostRepository, OnModuleInit {
             c.user_account_id,
             a.id AS actor_id,
             a.avatar_url,
+            a.first_names,
+            a.last_names,
+            a.primary_role,
+            ua.local_role,
             ua.username,
             ua.rol,
             ds.nickname,
@@ -658,6 +695,10 @@ export class PostRepository implements IPostRepository, OnModuleInit {
         userAccountId: row.user_account_id,
         actorId: row.actor_id,
         avatarUrl: row.avatar_url,
+        firstNames: row.first_names,
+        lastNames: row.last_names,
+        primaryRole: row.primary_role,
+        localRole: row.local_role,
         username: row.username,
         rol: row.rol,
         nickname: row.nickname,
@@ -687,7 +728,7 @@ export class PostRepository implements IPostRepository, OnModuleInit {
         categoryId: data.categoryId,
         content: data.content,
         imageUrl: data.imageUrl ?? mediaList[0] ?? null,
-        status: data.status ?? ModerationStatus.PENDING,
+        status: data.status ?? ModerationStatus.APPROVED,
         rejectionReason: data.rejectionReason ?? null,
       });
 
@@ -760,9 +801,19 @@ export class PostRepository implements IPostRepository, OnModuleInit {
              'LIKE_ON_POST' AS notif_type,
              'Nueva reacción a tu publicación' AS title,
              CONCAT(COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, ds.nickname, 'Alguien'), ' reaccionó a tu publicación.') AS body,
+             a.id AS actor_id,
+             COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, ds.nickname, 'Alguien') AS actor_name,
+             a.avatar_url AS actor_avatar_url,
+             p.id AS post_id,
+             NULL::uuid AS comment_id,
+             NULL::uuid AS connection_id,
+             NULL::varchar AS connection_status,
+             cat.name AS category_name,
+             SUBSTRING(p.content FROM 1 FOR 120) AS snippet,
              r.created_at
       FROM reactions r
       INNER JOIN posts p ON p.id = r.post_id
+      LEFT JOIN categories cat ON cat.id = p.category_id
       LEFT JOIN user_accounts ua ON ua.id = r.user_account_id
       LEFT JOIN actors a ON a.user_account_id = ua.id
       LEFT JOIN device_sessions ds ON ds.id = r.device_id
@@ -778,9 +829,19 @@ export class PostRepository implements IPostRepository, OnModuleInit {
              'COMMENT_ON_POST' AS notif_type,
              'Nuevo comentario en tu publicación' AS title,
              CONCAT(COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, ds.nickname, 'Alguien'), ' comentó tu publicación.') AS body,
+             a.id AS actor_id,
+             COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, ds.nickname, 'Alguien') AS actor_name,
+             a.avatar_url AS actor_avatar_url,
+             p.id AS post_id,
+             c.id AS comment_id,
+             NULL::uuid AS connection_id,
+             NULL::varchar AS connection_status,
+             cat.name AS category_name,
+             SUBSTRING(c.content FROM 1 FOR 120) AS snippet,
              c.created_at
       FROM comments c
       INNER JOIN posts p ON p.id = c.post_id
+      LEFT JOIN categories cat ON cat.id = p.category_id
       LEFT JOIN user_accounts ua ON ua.id = c.user_account_id
       LEFT JOIN actors a ON a.user_account_id = ua.id
       LEFT JOIN device_sessions ds ON ds.id = c.device_id
@@ -798,9 +859,20 @@ export class PostRepository implements IPostRepository, OnModuleInit {
              'REPLY_TO_COMMENT' AS notif_type,
              'Respondieron a tu comentario' AS title,
              CONCAT(COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, ds.nickname, 'Alguien'), ' respondió a tu comentario.') AS body,
+             a.id AS actor_id,
+             COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, ds.nickname, 'Alguien') AS actor_name,
+             a.avatar_url AS actor_avatar_url,
+             c.post_id AS post_id,
+             c.id AS comment_id,
+             NULL::uuid AS connection_id,
+             NULL::varchar AS connection_status,
+             cat.name AS category_name,
+             SUBSTRING(c.content FROM 1 FOR 120) AS snippet,
              c.created_at
       FROM comments c
       INNER JOIN comments parent ON parent.id = c.parent_id
+      INNER JOIN posts p ON p.id = c.post_id
+      LEFT JOIN categories cat ON cat.id = p.category_id
       LEFT JOIN user_accounts ua ON ua.id = c.user_account_id
       LEFT JOIN actors a ON a.user_account_id = ua.id
       LEFT JOIN device_sessions ds ON ds.id = c.device_id
@@ -812,30 +884,88 @@ export class PostRepository implements IPostRepository, OnModuleInit {
 
       UNION ALL
 
-      -- 4. Follower connections on my profile
+      -- 4. Likes on my comments
+      SELECT cr.id,
+             'LIKE_ON_COMMENT' AS notif_type,
+             'Le gustó tu comentario' AS title,
+             CONCAT(COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, ds.nickname, 'Alguien'), ' reaccionó a tu comentario.') AS body,
+             a.id AS actor_id,
+             COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, ds.nickname, 'Alguien') AS actor_name,
+             a.avatar_url AS actor_avatar_url,
+             c.post_id AS post_id,
+             c.id AS comment_id,
+             NULL::uuid AS connection_id,
+             NULL::varchar AS connection_status,
+             cat.name AS category_name,
+             SUBSTRING(c.content FROM 1 FOR 120) AS snippet,
+             cr.created_at
+      FROM comment_reactions cr
+      INNER JOIN comments c ON c.id = cr.comment_id
+      INNER JOIN posts p ON p.id = c.post_id
+      LEFT JOIN categories cat ON cat.id = p.category_id
+      LEFT JOIN user_accounts ua ON ua.id = cr.user_account_id
+      LEFT JOIN actors a ON a.user_account_id = ua.id
+      LEFT JOIN device_sessions ds ON ds.id = cr.device_id
+      WHERE c.user_account_id = $1
+        AND (cr.user_account_id IS NULL OR cr.user_account_id != $1)
+        AND (cr.device_id != $2)
+        AND cr.created_at >= $3
+
+      UNION ALL
+
+      -- 5. Follower connections on my profile
       SELECT ac.id,
              'NEW_FOLLOWER' AS notif_type,
-             'Nueva conexión en tu perfil' AS title,
-             CONCAT(COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, 'Alguien'), ' comenzó a seguirte.') AS body,
+             CASE
+               WHEN ac.status = 'PENDING' THEN 'Solicitud para seguirte'
+               ELSE 'Nueva conexión en tu perfil'
+             END AS title,
+             CONCAT(
+               COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, 'Alguien'),
+               CASE
+                 WHEN ac.status = 'PENDING' THEN ' solicitó seguirte.'
+                 ELSE ' comenzó a seguirte.'
+               END
+             ) AS body,
+             a.id AS actor_id,
+             COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username, 'Alguien') AS actor_name,
+             a.avatar_url AS actor_avatar_url,
+             NULL::uuid AS post_id,
+             NULL::uuid AS comment_id,
+             ac.id AS connection_id,
+             ac.status AS connection_status,
+             NULL::varchar AS category_name,
+             SUBSTRING(a.short_bio FROM 1 FOR 120) AS snippet,
              ac.requested_at AS created_at
       FROM actor_connections ac
       INNER JOIN actors my_actor ON my_actor.id = ac.receiver_actor_id
       INNER JOIN actors a ON a.id = ac.requester_actor_id
       LEFT JOIN user_accounts ua ON ua.id = a.user_account_id
       WHERE my_actor.user_account_id = $1
+        AND ac.status IN ('PENDING', 'ACCEPTED')
         AND ac.requested_at >= $3
 
       UNION ALL
 
-      -- 5. Foundation announcements
+      -- 6. Foundation announcements
       SELECT p.id,
              'FOUNDATION_ANNOUNCEMENT' AS notif_type,
              'Aviso oficial de ASISCO UP' AS title,
              SUBSTRING(p.content FROM 1 FOR 100) AS body,
+             a.id AS actor_id,
+             'Fundación ASISCO UP' AS actor_name,
+             a.avatar_url AS actor_avatar_url,
+             p.id AS post_id,
+             NULL::uuid AS comment_id,
+             NULL::uuid AS connection_id,
+             NULL::varchar AS connection_status,
+             cat.name AS category_name,
+             SUBSTRING(p.content FROM 1 FOR 120) AS snippet,
              p.created_at
       FROM posts p
       INNER JOIN categories cat ON cat.id = p.category_id
-      WHERE (cat.name ILIKE '%noticia%' OR cat.name ILIKE '%aviso%')
+      LEFT JOIN actors a ON a.user_account_id = p.user_account_id
+      WHERE (cat.name ILIKE '%noticia%' OR cat.name ILIKE '%aviso%' OR cat.main_topic ILIKE '%institucional%')
         AND p.status = 'APPROVED'
         AND (p.user_account_id IS NULL OR p.user_account_id != $1)
         AND p.created_at >= $3

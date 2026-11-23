@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
@@ -12,6 +13,13 @@ import {
 import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 import type { ActorConnectionStatus } from '../entities/actor-connection.entity';
+
+function emptyStringToNull({ value }: { value: unknown }): unknown {
+  if (typeof value === 'string' && value.trim() === '') {
+    return null;
+  }
+  return value;
+}
 
 export class ViewerConnectionStatusDto {
   @ApiProperty({ format: 'uuid' })
@@ -131,42 +139,56 @@ export class UpdateActorProfileDto {
   })
   primary_role?: string;
 
-  @ApiPropertyOptional({ maxLength: 80, example: 'María' })
+  @ApiPropertyOptional({ maxLength: 80, nullable: true, example: 'María' })
+  @Transform(emptyStringToNull)
   @IsOptional()
   @IsString()
   @MaxLength(80)
-  first_names?: string;
+  first_names?: string | null;
 
-  @ApiPropertyOptional({ maxLength: 80, example: 'Gómez' })
+  @ApiPropertyOptional({ maxLength: 80, nullable: true, example: 'Gómez' })
+  @Transform(emptyStringToNull)
   @IsOptional()
   @IsString()
   @MaxLength(80)
-  last_names?: string;
+  last_names?: string | null;
 
-  @ApiPropertyOptional({ maxLength: 500, example: 'https://cdn.asisco.org/avatars/1.jpg' })
+  @ApiPropertyOptional({
+    maxLength: 500,
+    nullable: true,
+    example: 'https://cdn.asisco.org/avatars/1.jpg',
+  })
+  @Transform(emptyStringToNull)
   @IsOptional()
   @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
   @MaxLength(500)
-  avatar_url?: string;
+  avatar_url?: string | null;
 
-  @ApiPropertyOptional({ maxLength: 500, example: 'Acudiente participante en talleres.' })
+  @ApiPropertyOptional({
+    maxLength: 500,
+    nullable: true,
+    example: 'Acudiente participante en talleres.',
+  })
+  @Transform(emptyStringToNull)
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  short_bio?: string;
+  short_bio?: string | null;
 
-  @ApiPropertyOptional({ maxLength: 10, format: 'date', example: '1988-05-14' })
+  @ApiPropertyOptional({ maxLength: 10, format: 'date', nullable: true, example: '1988-05-14' })
+  @Transform(emptyStringToNull)
   @IsOptional()
   @Matches(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, {
     message: 'birth_date debe tener formato YYYY-MM-DD.',
   })
-  birth_date?: string;
+  birth_date?: string | null;
 
-  @ApiPropertyOptional({ maxLength: 80, example: 'Manizales' })
+  @ApiPropertyOptional({ maxLength: 80, nullable: true, example: 'Manizales' })
+  @Transform(emptyStringToNull)
   @IsOptional()
   @IsString()
   @MaxLength(80)
-  city?: string;
+  city?: string | null;
 
   @ApiPropertyOptional({ example: false })
   @IsOptional()

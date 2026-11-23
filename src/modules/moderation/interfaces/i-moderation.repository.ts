@@ -15,6 +15,12 @@ export interface PendingModerationRow {
   readonly imageUrl: string | null;
   readonly deviceId: string;
   readonly userAccountId: string | null;
+  readonly actorId?: string | null;
+  readonly avatarUrl?: string | null;
+  readonly firstNames?: string | null;
+  readonly lastNames?: string | null;
+  readonly primaryRole?: string | null;
+  readonly localRole?: string | null;
   readonly username: string | null;
   readonly rol: string | null;
   readonly nickname: string | null;

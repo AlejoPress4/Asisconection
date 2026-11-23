@@ -4,6 +4,9 @@ export class AuthorBadgeDto {
   @ApiPropertyOptional({ format: 'uuid', nullable: true })
   actor_id?: string | null;
 
+  @ApiPropertyOptional({ type: String, nullable: true, example: 'maria.acudiente' })
+  username?: string | null;
+
   @ApiProperty({ example: 'maria.acudiente' })
   display_name!: string;
 

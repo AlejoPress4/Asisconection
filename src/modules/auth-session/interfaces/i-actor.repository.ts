@@ -6,10 +6,10 @@ import type {
 
 export interface UpdateActorFields {
   readonly primaryRole?: string;
-  readonly firstNames?: string;
-  readonly lastNames?: string;
-  readonly avatarUrl?: string;
-  readonly shortBio?: string;
+  readonly firstNames?: string | null;
+  readonly lastNames?: string | null;
+  readonly avatarUrl?: string | null;
+  readonly shortBio?: string | null;
   readonly birthDate?: string | null;
   readonly city?: string | null;
   readonly showEmail?: boolean;

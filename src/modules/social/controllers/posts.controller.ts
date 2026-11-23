@@ -269,6 +269,7 @@ export class PostsController {
   }
 
   @Get('posts/:postId/comments')
+  @UseGuards(OptionalDeviceSessionGuard)
   @ApiOperation({
     summary: 'Lista paginada de comentarios aprobados (status = APPROVED) de una publicación',
   })
@@ -287,8 +288,9 @@ export class PostsController {
   async listApprovedComments(
     @Param('postId', new ParseUUIDPipe()) postId: string,
     @Query() query: PaginationQueryDto,
+    @CurrentSession() optionalSession?: SessionContext,
   ): Promise<CommentsPageDto> {
-    return this.postsService.listApprovedComments(postId, query);
+    return this.postsService.listApprovedComments(postId, query, optionalSession);
   }
 
   @Post('posts/:postId/comments')

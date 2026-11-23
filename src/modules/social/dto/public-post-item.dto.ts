@@ -18,6 +18,9 @@ export class ApprovedCommentItemDto {
   @ApiPropertyOptional({ example: 0 })
   likes_count?: number;
 
+  @ApiPropertyOptional({ example: false })
+  liked_by_me?: boolean;
+
   @ApiProperty({ format: 'date-time' })
   created_at!: string;
 }
