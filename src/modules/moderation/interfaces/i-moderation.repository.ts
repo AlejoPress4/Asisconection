@@ -38,12 +38,14 @@ export interface ModerationUpdatedRecord {
 
 export interface ModeratorAccountRecord {
   readonly id: string;
+  readonly actorId?: string | null;
   readonly username: string;
   readonly email: string;
   readonly rol: string;
   readonly localRole: string | null;
   readonly displayName?: string | null;
   readonly avatarUrl?: string | null;
+  readonly isActive?: boolean;
 }
 
 export interface CreateContentReportInput {
@@ -85,8 +87,15 @@ export interface IModerationRepository {
     status: AllowedModerationDecision,
   ): Promise<ModerationUpdatedRecord | null>;
   listModerators?(): Promise<ModeratorAccountRecord[]>;
-  listAccounts?(search?: string): Promise<ModeratorAccountRecord[]>;
-  setLocalRole?(userAccountId: string, localRole: 'MODERATOR' | null): Promise<ModeratorAccountRecord | null>;
+  listAccounts?(search?: string, includeInactive?: boolean): Promise<ModeratorAccountRecord[]>;
+  setLocalRole?(
+    userAccountId: string,
+    localRole: 'MODERATOR' | null,
+  ): Promise<ModeratorAccountRecord | null>;
+  setAccountActiveStatus?(
+    userAccountId: string,
+    isActive: boolean,
+  ): Promise<ModeratorAccountRecord | null>;
   targetExistsAndApproved?(targetType: ContentReportTargetType, targetId: string): Promise<boolean>;
   hasOpenReportByDevice?(
     targetType: ContentReportTargetType,

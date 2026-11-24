@@ -39,7 +39,7 @@ import {
 } from './dto/content-report.dto';
 import { ModerationPendingPageDto } from './dto/moderation-pending-page.dto';
 import { ModerationStatusUpdatedDto } from './dto/moderation-status-updated.dto';
-import { ModeratorAccountItemDto } from './dto/moderator-role.dto';
+import { ModeratorAccountItemDto, UpdateAccountStatusDto } from './dto/moderator-role.dto';
 import { PendingQueryDto } from './dto/pending-query.dto';
 import { UpdateModerationStatusDto } from './dto/update-moderation-status.dto';
 import { ModerationService } from './moderation.service';
@@ -218,7 +218,7 @@ export class ModerationController {
   @Get('admin/accounts')
   @Roles('ADMIN')
   @ApiOperation({
-    summary: 'Lista y busca cuentas registradas para asignación de moderadores (Exclusivo ADMIN)',
+    summary: 'Lista y busca cuentas registradas para administración y validación (Exclusivo ADMIN)',
   })
   @ApiOkResponse({
     type: [ModeratorAccountItemDto],
@@ -229,8 +229,32 @@ export class ModerationController {
   })
   async listAccounts(
     @Query('search') search?: string,
+    @Query('includeInactive') includeInactive?: string,
   ): Promise<ModeratorAccountItemDto[]> {
-    return this.moderationService.listAccounts(search);
+    return this.moderationService.listAccounts(search, includeInactive === 'true');
+  }
+
+  @Patch('admin/accounts/:userAccountId/status')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Activa (valida) o suspende una cuenta de usuario registrada (Exclusivo ADMIN)',
+  })
+  @ApiOkResponse({
+    type: ModeratorAccountItemDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Acceso denegado — exclusivo para rol ADMIN o intento de suspender un ADMIN',
+    type: ProblemDetailsDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Cuenta de usuario no encontrada',
+    type: ProblemDetailsDto,
+  })
+  async updateAccountStatus(
+    @Param('userAccountId', new ParseUUIDPipe()) userAccountId: string,
+    @Body() dto: UpdateAccountStatusDto,
+  ): Promise<ModeratorAccountItemDto> {
+    return this.moderationService.updateAccountStatus(userAccountId, dto.is_active);
   }
 
   @Get('admin/moderators')

@@ -53,12 +53,14 @@ interface RawUpdatedRow {
 
 interface RawModeratorRow {
   readonly id: string;
+  readonly actor_id?: string | null;
   readonly username: string;
   readonly email: string;
   readonly rol: string;
   readonly local_role: string | null;
   readonly display_name?: string | null;
   readonly avatar_url?: string | null;
+  readonly is_active?: boolean;
 }
 
 interface RawContentReportRow {
@@ -426,33 +428,77 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
     };
   }
 
-  async listAccounts(search?: string): Promise<ModeratorAccountRecord[]> {
+  async listAccounts(search?: string, includeInactive = false): Promise<ModeratorAccountRecord[]> {
     let query = `
-      SELECT ua.id, ua.username, ua.email, ua.rol, ua.local_role,
+      SELECT ua.id, a.id AS actor_id, ua.username, ua.email, ua.rol, ua.local_role, ua.is_active,
              COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), ua.username) AS display_name,
              a.avatar_url
       FROM user_accounts ua
       LEFT JOIN actors a ON a.user_account_id = ua.id
-      WHERE ua.is_active = true
+      WHERE 1=1
     `;
     const params: unknown[] = [];
+    if (!includeInactive) {
+      query += ` AND ua.is_active = true`;
+    }
     if (search && search.trim().length > 0) {
       params.push(`%${search.trim()}%`);
       query += ` AND (ua.username ILIKE $1 OR ua.email ILIKE $1 OR a.first_names ILIKE $1 OR a.last_names ILIKE $1)`;
     }
-    query += ` ORDER BY ua.username ASC LIMIT 50`;
+    query += ` ORDER BY ua.is_active DESC, ua.username ASC LIMIT 100`;
 
     const rows = await this.dataSource.query<RawModeratorRow[]>(query, params);
 
     return rows.map((r) => ({
       id: r.id,
+      actorId: r.actor_id ?? null,
       username: r.username,
       email: r.email,
       rol: r.rol,
       localRole: r.local_role,
       displayName: r.display_name ?? null,
       avatarUrl: r.avatar_url ?? null,
+      isActive: r.is_active ?? true,
     }));
+  }
+
+  async setAccountActiveStatus(
+    userAccountId: string,
+    isActive: boolean,
+  ): Promise<ModeratorAccountRecord | null> {
+    const rows = await this.dataSource.query<RawModeratorRow[]>(
+      `
+        WITH updated AS (
+          UPDATE user_accounts
+          SET is_active = $2
+          WHERE id = $1::uuid
+          RETURNING id, username, email, rol, local_role, is_active
+        )
+        SELECT u.id, a.id AS actor_id, u.username, u.email, u.rol, u.local_role, u.is_active,
+               COALESCE(NULLIF(TRIM(CONCAT(a.first_names, ' ', a.last_names)), ''), u.username) AS display_name,
+               a.avatar_url
+        FROM updated u
+        LEFT JOIN actors a ON a.user_account_id = u.id
+      `,
+      [userAccountId, isActive],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      actorId: row.actor_id ?? null,
+      username: row.username,
+      email: row.email,
+      rol: row.rol,
+      localRole: row.local_role,
+      displayName: row.display_name ?? null,
+      avatarUrl: row.avatar_url ?? null,
+      isActive: row.is_active ?? isActive,
+    };
   }
 
   async listModerators(): Promise<ModeratorAccountRecord[]> {

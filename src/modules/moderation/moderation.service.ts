@@ -1,4 +1,10 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { SessionContext } from '../../common/auth/interfaces/session-context.interface';
 import { buildPaginationMeta } from '../../common/dto/pagination.util';
 import { ModerationStatus } from '../../common/enums/moderation-status.enum';
@@ -87,20 +93,56 @@ export class ModerationService {
     };
   }
 
-  async listAccounts(search?: string): Promise<ModeratorAccountItemDto[]> {
+  async listAccounts(
+    search?: string,
+    includeInactive = false,
+  ): Promise<ModeratorAccountItemDto[]> {
     if (!this.moderationRepository.listAccounts) {
       return [];
     }
-    const items = await this.moderationRepository.listAccounts(search);
+    const items = await this.moderationRepository.listAccounts(search, includeInactive);
     return items.map((item) => ({
       id: item.id,
+      actor_id: item.actorId ?? null,
       username: item.username,
       email: item.email,
       rol: item.rol,
       local_role: item.localRole,
       display_name: item.displayName ?? null,
       avatar_url: item.avatarUrl ?? null,
+      is_active: item.isActive ?? true,
     }));
+  }
+
+  async updateAccountStatus(
+    userAccountId: string,
+    isActive: boolean,
+  ): Promise<ModeratorAccountItemDto> {
+    if (!this.moderationRepository.setAccountActiveStatus) {
+      throw new NotFoundException('La cuenta de usuario indicada no existe.');
+    }
+    if (!isActive && this.moderationRepository.listAccounts) {
+      const allAccounts = await this.moderationRepository.listAccounts(undefined, true);
+      const target = allAccounts.find((item) => item.id === userAccountId);
+      if (target && target.rol.trim().toUpperCase() === 'ADMIN') {
+        throw new ForbiddenException('No está permitido suspender una cuenta con rol ADMIN.');
+      }
+    }
+    const updated = await this.moderationRepository.setAccountActiveStatus(userAccountId, isActive);
+    if (!updated) {
+      throw new NotFoundException('La cuenta de usuario indicada no existe.');
+    }
+    return {
+      id: updated.id,
+      actor_id: updated.actorId ?? null,
+      username: updated.username,
+      email: updated.email,
+      rol: updated.rol,
+      local_role: updated.localRole,
+      display_name: updated.displayName ?? null,
+      avatar_url: updated.avatarUrl ?? null,
+      is_active: updated.isActive ?? isActive,
+    };
   }
 
   async listModerators(): Promise<ModeratorAccountItemDto[]> {
