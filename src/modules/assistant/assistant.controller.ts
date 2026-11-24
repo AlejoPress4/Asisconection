@@ -83,7 +83,7 @@ export class AssistantController {
 }
 
 @ApiTags('Admin - Assistant FAQs')
-@ApiBearerAuth('DeviceTokenAuth')
+@ApiBearerAuth('DeviceSessionBearer')
 @Controller('admin/faqs')
 @UseGuards(DeviceSessionGuard, RolesGuard)
 @Roles('ADMIN')

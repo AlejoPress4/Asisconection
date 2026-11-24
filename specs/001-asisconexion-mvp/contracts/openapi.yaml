@@ -461,6 +461,9 @@ components:
         actor_id:
           type: [string, 'null']
           format: uuid
+        username:
+          type: [string, 'null']
+          example: maria.acudiente
         display_name:
           type: string
           example: maria.acudiente
@@ -491,6 +494,9 @@ components:
         likes_count:
           type: integer
           example: 0
+        liked_by_me:
+          type: boolean
+          example: false
         created_at:
           type: string
           format: date-time
@@ -710,15 +716,15 @@ components:
           format: uuid
         status:
           type: string
-          enum: [PENDING, REJECTED]
-          example: PENDING
+          enum: [PENDING, APPROVED, REJECTED]
+          example: APPROVED
         rejection_reason:
           type: [string, 'null']
           enum: [AUTO_FILTER, HUMAN, null]
           example: null
         message:
           type: string
-          example: Contenido recibido y enviado a moderación humana antes de su publicación.
+          example: Contenido publicado y aprobado exitosamente.
         created_at:
           type: string
           format: date-time
@@ -871,6 +877,53 @@ components:
           type: string
           example: Plataforma de inclusión y formación integral.
 
+    CreateRedirectionLinkDto:
+      type: object
+      required: [project_name, url, description]
+      additionalProperties: false
+      properties:
+        project_name:
+          type: string
+          maxLength: 100
+          example: SUMA 21
+        url:
+          type: string
+          format: uri
+          maxLength: 500
+          example: https://suma21.fundacionasisco.org
+        description:
+          type: string
+          maxLength: 1500
+          example: Plataforma de inclusión y formación integral.
+
+    UpdateRedirectionLinkDto:
+      type: object
+      additionalProperties: false
+      properties:
+        project_name:
+          type: string
+          maxLength: 100
+        url:
+          type: string
+          format: uri
+          maxLength: 500
+        description:
+          type: string
+          maxLength: 1500
+        is_active:
+          type: boolean
+
+    DeletedRedirectionLinkResponseDto:
+      type: object
+      required: [id, deleted]
+      properties:
+        id:
+          type: string
+          format: uuid
+        deleted:
+          type: boolean
+          example: true
+
     FaqItemDto:
       type: object
       required: [id, question, answer, category]
@@ -886,6 +939,46 @@ components:
           type: string
           example: Inscripciones
 
+    CreateFaqDto:
+      type: object
+      required: [question, answer, category]
+      additionalProperties: false
+      properties:
+        question:
+          type: string
+          maxLength: 300
+        answer:
+          type: string
+          maxLength: 3000
+        category:
+          type: string
+          maxLength: 60
+
+    UpdateFaqDto:
+      type: object
+      additionalProperties: false
+      properties:
+        question:
+          type: string
+          maxLength: 300
+        answer:
+          type: string
+          maxLength: 3000
+        category:
+          type: string
+          maxLength: 60
+
+    DeletedFaqResponseDto:
+      type: object
+      required: [id, deleted]
+      properties:
+        id:
+          type: string
+          format: uuid
+        deleted:
+          type: boolean
+          example: true
+
     EscalateRequestDto:
       type: object
       additionalProperties: false
@@ -897,12 +990,18 @@ components:
 
     EscalateResponseDto:
       type: object
-      required: [whatsapp_url, support_message]
+      required: [whatsapp_url, phone, message, support_message]
       properties:
         whatsapp_url:
           type: string
           format: uri
           example: https://wa.me/573000000000?text=Hola%20Fundaci%C3%B3n%20Asisco
+        phone:
+          type: string
+          example: '573001234567'
+        message:
+          type: string
+          example: Hola Fundación Asisco, requiero acompañamiento humano desde AsisConexión.
         support_message:
           type: string
           example: Serás redirigido de forma nativa al canal humano oficial en WhatsApp.
@@ -916,13 +1015,42 @@ components:
           example: notif-1
         type:
           type: string
-          enum: [COMMENT_ON_POST, REPLY_TO_COMMENT, LIKE_ON_POST, FOUNDATION_ANNOUNCEMENT]
+          enum:
+            - COMMENT_ON_POST
+            - REPLY_TO_COMMENT
+            - LIKE_ON_POST
+            - LIKE_ON_COMMENT
+            - FOUNDATION_ANNOUNCEMENT
+            - NEW_FOLLOWER
         title:
           type: string
           example: Nuevo comentario en tu publicación
         body:
           type: string
           example: Carlos Voluntario comentó en tu publicación.
+        actor_id:
+          type: [string, 'null']
+          format: uuid
+        actor_name:
+          type: [string, 'null']
+        actor_avatar_url:
+          type: [string, 'null']
+          format: uri
+        post_id:
+          type: [string, 'null']
+          format: uuid
+        comment_id:
+          type: [string, 'null']
+          format: uuid
+        connection_id:
+          type: [string, 'null']
+          format: uuid
+        connection_status:
+          type: [string, 'null']
+        category_name:
+          type: [string, 'null']
+        snippet:
+          type: [string, 'null']
         is_read:
           type: boolean
           example: false
@@ -2096,3 +2224,135 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EscalateResponseDto'
+
+  /v1/admin/faqs:
+    post:
+      tags: [Assistant]
+      summary: Crea una nueva pregunta frecuente en la base de conocimiento (Solo ADMIN)
+      security:
+        - DeviceSessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFaqDto'
+      responses:
+        '201':
+          description: Pregunta frecuente creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FaqItemDto'
+
+  /v1/admin/faqs/{id}:
+    patch:
+      tags: [Assistant]
+      summary: Actualiza una pregunta frecuente existente (Solo ADMIN)
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFaqDto'
+      responses:
+        '200':
+          description: Pregunta frecuente actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FaqItemDto'
+    delete:
+      tags: [Assistant]
+      summary: Elimina una pregunta frecuente (Solo ADMIN)
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Pregunta frecuente eliminada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletedFaqResponseDto'
+
+  /v1/admin/directory/links:
+    post:
+      tags: [Directory]
+      summary: Crea un nuevo enlace en el directorio del ecosistema (Solo ADMIN)
+      security:
+        - DeviceSessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRedirectionLinkDto'
+      responses:
+        '201':
+          description: Enlace del ecosistema creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RedirectionLinkItemDto'
+
+  /v1/admin/directory/links/{id}:
+    patch:
+      tags: [Directory]
+      summary: Actualiza un enlace existente del directorio del ecosistema (Solo ADMIN)
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRedirectionLinkDto'
+      responses:
+        '200':
+          description: Enlace del ecosistema actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RedirectionLinkItemDto'
+    delete:
+      tags: [Directory]
+      summary: Elimina un enlace del directorio del ecosistema (Solo ADMIN)
+      security:
+        - DeviceSessionBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Enlace del ecosistema eliminado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletedRedirectionLinkResponseDto'

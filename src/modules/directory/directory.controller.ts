@@ -60,7 +60,7 @@ export class DirectoryController {
 }
 
 @ApiTags('Admin - Ecosystem Directory')
-@ApiBearerAuth('DeviceTokenAuth')
+@ApiBearerAuth('DeviceSessionBearer')
 @Controller('admin/directory/links')
 @UseGuards(DeviceSessionGuard, RolesGuard)
 @Roles('ADMIN')

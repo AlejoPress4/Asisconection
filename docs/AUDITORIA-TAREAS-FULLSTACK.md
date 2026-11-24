@@ -47,3 +47,18 @@ Documento maestro de auditoría, alineación de contratos y trazabilidad de extr
 - **[x] FE-05 · Cita (`snippet`), punto naranja de no leída, contador `"X nuevas"`, navegación al tocar y nota de 30 días en `NotificationsScreen.tsx`**
 - **[x] FE-06 · Píldoras de vista previa, tarjetas de opción tipo radio en *"Quién puede seguirte"* y estilo del botón *"Cerrar sesión"* con ícono en `SettingsScreen.tsx`**
 - **[x] FE-07 · Retroalimentación en línea en `NewPostScreen.tsx` y `AssistantScreen.tsx`**
+
+---
+
+## 3. Pendientes Priorizados (Siguiente Iteración)
+
+### Completado en Revisión Post-Pull
+- **[x] DOC-01 · Paridad OpenAPI (`openapi.yaml`) y `@ApiBearerAuth('DeviceSessionBearer')`**: Corregido el esquema Bearer en `AdminFaqsController` y `AdminDirectoryController`, y sincronizado `specs/001-asisconexion-mvp/contracts/openapi.yaml` con las rutas CRUD Admin (`BK-01`) y contratos `AL-01..AL-05`.
+
+### Pendientes Abiertos por Resolver
+- **[ ] PEND-01 · Revisión y modificación de cómo y dónde se consumen/almacenan las imágenes (Flujo Multimedia)**:
+  - Auditar el origen, almacenamiento y consumo actual de imágenes (subida en `POST /v1/media/upload` con Cloudinary, URLs en `post_media`, `avatar_url`, `cover_image_url` y consumo desde React Native/Web) para rediseñar/unificar dónde se alojan y cómo las solicita el cliente.
+- **[ ] PEND-02 · Problemas de usuarios e identidad entre ambos sistemas (Render/Supabase ↔ `ASISCONEXION_DB`)**:
+  - Revisar y corregir el flujo cuando se intenta crear una cuenta con un `email` (o `username`) que ya existe en ambos sistemas o en uno solo de los dos (Render/Supabase vs. `ASISCONEXION_DB`), así como desincronizaciones de credenciales/roles, recuperación de cuenta y mensajes de error RFC 7807 claros para el Frontend.
+- **[ ] PEND-03 · Promoción a rama `production`**:
+  - Validar en staging/remoto tras cerrar `PEND-01` y `PEND-02` y promover los cambios de `001-asisconexion-mvp` a `production`.
