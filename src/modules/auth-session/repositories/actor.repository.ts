@@ -118,7 +118,7 @@ export class ActorRepository implements IActorRepository, OnModuleInit {
   }
 
   async getStatsForActor(actorId: string, userAccountId: string): Promise<ActorStats> {
-    const [postsRows, followersRows, followingRows] = await Promise.all([
+    const [postsRows, mutualConnectionsCount] = await Promise.all([
       this.dataSource.query<RawCountRow[]>(
         `
           SELECT COUNT(*)::int AS total
@@ -130,24 +130,20 @@ export class ActorRepository implements IActorRepository, OnModuleInit {
       ),
       this.connectionRepo
         .createQueryBuilder('ac')
-        .where('ac.receiver_actor_id = :actorId AND ac.status = :status', {
-          actorId,
-          status: 'ACCEPTED',
-        })
-        .getCount(),
-      this.connectionRepo
-        .createQueryBuilder('ac')
-        .where('ac.requester_actor_id = :actorId AND ac.status = :status', {
-          actorId,
-          status: 'ACCEPTED',
-        })
+        .where(
+          '(ac.requester_actor_id = :actorId OR ac.receiver_actor_id = :actorId) AND ac.status = :status',
+          {
+            actorId,
+            status: 'ACCEPTED',
+          },
+        )
         .getCount(),
     ]);
 
     return {
       postsCount: Number(postsRows[0]?.total ?? 0),
-      followersCount: followersRows,
-      followingCount: followingRows,
+      followersCount: mutualConnectionsCount,
+      followingCount: mutualConnectionsCount,
     };
   }
 
@@ -159,12 +155,22 @@ export class ActorRepository implements IActorRepository, OnModuleInit {
     const existing = await this.connectionRepo
       .createQueryBuilder('ac')
       .where(
-        '(ac.requester_actor_id = :requesterActorId AND ac.receiver_actor_id = :receiverActorId) OR (ac.requester_actor_id = :receiverActorId AND ac.receiver_actor_id = :requesterActorId AND ac.status = :blockedStatus)',
-        { requesterActorId, receiverActorId, blockedStatus: 'BLOCKED' },
+        '(ac.requester_actor_id = :requesterActorId AND ac.receiver_actor_id = :receiverActorId) OR (ac.requester_actor_id = :receiverActorId AND ac.receiver_actor_id = :requesterActorId)',
+        { requesterActorId, receiverActorId },
       )
       .getOne();
 
     if (existing) {
+      // Bidirectional friendship: if the other actor already sent a pending request, accept it.
+      if (
+        existing.status === 'PENDING' &&
+        existing.requesterActorId === receiverActorId &&
+        existing.receiverActorId === requesterActorId
+      ) {
+        existing.status = 'ACCEPTED';
+        existing.acceptedAt = new Date();
+        return this.connectionRepo.save(existing);
+      }
       throw new ConflictException('Ya existe una solicitud o conexión entre estos perfiles Actor.');
     }
 
@@ -294,25 +300,7 @@ export class ActorRepository implements IActorRepository, OnModuleInit {
     skip: number,
     take: number,
   ): Promise<{ items: Actor[]; total: number }> {
-    const [connections, total] = await this.connectionRepo
-      .createQueryBuilder('ac')
-      .innerJoinAndSelect('ac.requesterActor', 'reqActor')
-      .innerJoinAndSelect('reqActor.userAccount', 'reqUa')
-      .where('ac.receiver_actor_id = :actorId AND ac.status = :status', {
-        actorId,
-        status: 'ACCEPTED',
-      })
-      .orderBy('ac.accepted_at', 'DESC')
-      .skip(skip)
-      .take(take)
-      .getManyAndCount();
-
-    return {
-      items: connections
-        .map((c) => c.requesterActor)
-        .filter((actor): actor is Actor => Boolean(actor)),
-      total,
-    };
+    return this.listAcceptedPeers(actorId, skip, take);
   }
 
   async listFollowing(
@@ -320,24 +308,45 @@ export class ActorRepository implements IActorRepository, OnModuleInit {
     skip: number,
     take: number,
   ): Promise<{ items: Actor[]; total: number }> {
+    return this.listAcceptedPeers(actorId, skip, take);
+  }
+
+  private async listAcceptedPeers(
+    actorId: string,
+    skip: number,
+    take: number,
+  ): Promise<{ items: Actor[]; total: number }> {
     const [connections, total] = await this.connectionRepo
       .createQueryBuilder('ac')
+      .innerJoinAndSelect('ac.requesterActor', 'reqActor')
+      .innerJoinAndSelect('reqActor.userAccount', 'reqUa')
       .innerJoinAndSelect('ac.receiverActor', 'recActor')
       .innerJoinAndSelect('recActor.userAccount', 'recUa')
-      .where('ac.requester_actor_id = :actorId AND ac.status = :status', {
-        actorId,
-        status: 'ACCEPTED',
-      })
+      .where(
+        '(ac.requester_actor_id = :actorId OR ac.receiver_actor_id = :actorId) AND ac.status = :status',
+        {
+          actorId,
+          status: 'ACCEPTED',
+        },
+      )
       .orderBy('ac.accepted_at', 'DESC')
       .skip(skip)
       .take(take)
       .getManyAndCount();
 
-    return {
-      items: connections
-        .map((c) => c.receiverActor)
-        .filter((actor): actor is Actor => Boolean(actor)),
-      total,
-    };
+    const seenPeerIds = new Set<string>();
+    const items: Actor[] = [];
+    for (const connection of connections) {
+      const peer =
+        connection.requesterActorId === actorId
+          ? connection.receiverActor
+          : connection.requesterActor;
+      if (peer && !seenPeerIds.has(peer.id)) {
+        seenPeerIds.add(peer.id);
+        items.push(peer);
+      }
+    }
+
+    return { items, total };
   }
 }

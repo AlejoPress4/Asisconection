@@ -50,8 +50,13 @@ export class AuthSessionService {
       normalizedEmail,
     );
     if (existingLocal) {
+      if (existingLocal.email.trim().toLowerCase() === normalizedEmail) {
+        throw new ConflictException(
+          'Ya existe una cuenta registrada con este correo electrónico. Inicia sesión con tu cuenta existente.',
+        );
+      }
       throw new ConflictException(
-        'El username o email ya se encuentra registrado en AsisConexión.',
+        'El nombre de usuario ya está en uso en AsisConexión. Elige otro nombre de usuario.',
       );
     }
 

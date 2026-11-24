@@ -182,10 +182,11 @@ export class ModerationService {
         dto.target_type,
         dto.target_id,
         session.sessionId,
+        session.userAccountId,
       );
       if (alreadyReported) {
         throw new ConflictException(
-          'Ya existe un reporte comunitario abierto desde este dispositivo para este contenido.',
+          'Ya existe un reporte comunitario abierto para este contenido.',
         );
       }
     }
@@ -251,6 +252,14 @@ export class ModerationService {
         await this.moderationRepository.updateCommentStatus(
           updated.targetId,
           ModerationStatus.REJECTED,
+        );
+      }
+      if (this.moderationRepository.resolveOtherOpenReportsForTarget) {
+        await this.moderationRepository.resolveOtherOpenReportsForTarget(
+          updated.targetType,
+          updated.targetId,
+          updated.id,
+          session.userAccountId,
         );
       }
     }

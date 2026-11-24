@@ -92,6 +92,7 @@ export interface IModerationRepository {
     targetType: ContentReportTargetType,
     targetId: string,
     reporterDeviceId: string,
+    reporterUserAccountId?: string | null,
   ): Promise<boolean>;
   createContentReport?(input: CreateContentReportInput): Promise<ContentReportRecord>;
   findContentReports?(
@@ -104,6 +105,12 @@ export interface IModerationRepository {
     status: 'RESOLVED' | 'DISMISSED',
     resolvedByUserAccountId: string | null,
   ): Promise<ContentReportRecord | null>;
+  resolveOtherOpenReportsForTarget?(
+    targetType: ContentReportTargetType,
+    targetId: string,
+    excludeReportId: string,
+    resolvedByUserAccountId: string | null,
+  ): Promise<void>;
 }
 
 export const MODERATION_REPOSITORY = Symbol('MODERATION_REPOSITORY');

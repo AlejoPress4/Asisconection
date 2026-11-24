@@ -1,6 +1,7 @@
 import { HttpService } from '@nestjs/axios';
 import {
   BadGatewayException,
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -125,6 +126,38 @@ function parseExternalUserResponse(
   };
 }
 
+function extractExternalErrorMessage(data: unknown): string | null {
+  if (typeof data === 'string' && data.trim().length > 0) {
+    return data.trim();
+  }
+  const record = asRecord(data);
+  if (!record) {
+    return null;
+  }
+  const direct =
+    readOptionalString(record, 'error') ??
+    readOptionalString(record, 'message') ??
+    readOptionalString(record, 'detail');
+  if (direct) {
+    return direct;
+  }
+  const rawMessage = record['message'];
+  if (Array.isArray(rawMessage)) {
+    const joined = rawMessage
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .join(' ');
+    return joined.length > 0 ? joined : null;
+  }
+  return null;
+}
+
+function isDuplicateErrorMessage(message: string | null): boolean {
+  if (!message) {
+    return false;
+  }
+  return /(ya\s+existe|registrad|duplicad|en\s+uso|already|exists|unique|conflict)/i.test(message);
+}
+
 @Injectable()
 export class ExternalAuthHttpAdapter implements IExternalAuthAdapter {
   private readonly logger = new Logger(ExternalAuthHttpAdapter.name);
@@ -167,12 +200,17 @@ export class ExternalAuthHttpAdapter implements IExternalAuthAdapter {
       }
       return initialResult;
     } catch (error: unknown) {
-      if (error instanceof BadGatewayException || error instanceof ConflictException) {
+      if (
+        error instanceof BadGatewayException ||
+        error instanceof ConflictException ||
+        error instanceof BadRequestException
+      ) {
         throw error;
       }
 
       if (isAxiosError(error)) {
         const status = error.response?.status;
+        const externalMessage = extractExternalErrorMessage(error.response?.data);
         this.logger.warn(
           `Fallo en registro hacia Render (status=${status ?? 'network'}): ${JSON.stringify(
             redactSensitiveFields({ username: payload.username, email: payload.email }),
@@ -185,9 +223,32 @@ export class ExternalAuthHttpAdapter implements IExternalAuthAdapter {
           );
         }
 
-        if (status !== undefined && status >= 400 && status < 500 && status !== 404) {
+        if (
+          status === 409 ||
+          (status !== undefined &&
+            status >= 400 &&
+            status < 500 &&
+            status !== 404 &&
+            isDuplicateErrorMessage(externalMessage))
+        ) {
+          if (externalMessage && /(email|correo)/i.test(externalMessage)) {
+            throw new ConflictException(
+              'Ya existe una cuenta registrada con este correo electrónico en el ecosistema de la Fundación. Inicia sesión con tu cuenta existente.',
+            );
+          }
+          if (externalMessage && /(username|usuario)/i.test(externalMessage)) {
+            throw new ConflictException(
+              'El nombre de usuario ya está registrado en el ecosistema de la Fundación. Elige otro nombre de usuario.',
+            );
+          }
           throw new ConflictException(
-            'El username o email ya se encuentra registrado en el servicio central. Puede iniciar sesión con su cuenta existente.',
+            'Ya existe una cuenta registrada con este correo electrónico o nombre de usuario en el ecosistema de la Fundación. Inicia sesión con tu cuenta existente.',
+          );
+        }
+
+        if (status === 400 || status === 422) {
+          throw new BadRequestException(
+            externalMessage ?? 'Los datos de registro no son válidos. Verifica el formulario.',
           );
         }
       }

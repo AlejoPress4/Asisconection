@@ -54,11 +54,9 @@ Documento maestro de auditoría, alineación de contratos y trazabilidad de extr
 
 ### Completado en Revisión Post-Pull
 - **[x] DOC-01 · Paridad OpenAPI (`openapi.yaml`) y `@ApiBearerAuth('DeviceSessionBearer')`**: Corregido el esquema Bearer en `AdminFaqsController` y `AdminDirectoryController`, y sincronizado `specs/001-asisconexion-mvp/contracts/openapi.yaml` con las rutas CRUD Admin (`BK-01`) y contratos `AL-01..AL-05`.
+- **[x] CU-05 (Endurecimiento Reportes de Comentarios)**: Validación de duplicados por `reporter_device_id OR reporter_user_account_id`, inclusión de `target_content_preview` al crear/resolver reportes, cierre automático de reportes hermanos `OPEN` al retirar un comentario/post con `reject_target: true` y cobertura E2E completa alineada con `Frontend-Asisconnection`.
+- **[x] PEND-02 · Conflictos de `email` y `username` en ambos sistemas (Render/Supabase ↔ `ASISCONEXION_DB`)**: Diferenciación explícita de errores `409 Conflict` por correo electrónico vs. nombre de usuario tanto en `ASISCONEXION_DB` como en el servicio central (Render/Supabase), evitando enmascarar errores reales de validación `400` y guiando al usuario a iniciar sesión cuando su correo ya existe en el ecosistema.
 
 ### Pendientes Abiertos por Resolver
-- **[ ] PEND-01 · Revisión y modificación de cómo y dónde se consumen/almacenan las imágenes (Flujo Multimedia)**:
-  - Auditar el origen, almacenamiento y consumo actual de imágenes (subida en `POST /v1/media/upload` con Cloudinary, URLs en `post_media`, `avatar_url`, `cover_image_url` y consumo desde React Native/Web) para rediseñar/unificar dónde se alojan y cómo las solicita el cliente.
-- **[ ] PEND-02 · Problemas de usuarios e identidad entre ambos sistemas (Render/Supabase ↔ `ASISCONEXION_DB`)**:
-  - Revisar y corregir el flujo cuando se intenta crear una cuenta con un `email` (o `username`) que ya existe en ambos sistemas o en uno solo de los dos (Render/Supabase vs. `ASISCONEXION_DB`), así como desincronizaciones de credenciales/roles, recuperación de cuenta y mensajes de error RFC 7807 claros para el Frontend.
 - **[ ] PEND-03 · Promoción a rama `production`**:
-  - Validar en staging/remoto tras cerrar `PEND-01` y `PEND-02` y promover los cambios de `001-asisconexion-mvp` a `production`.
+  - Validar en staging/remoto y promover los cambios de `001-asisconexion-mvp` a `production`.

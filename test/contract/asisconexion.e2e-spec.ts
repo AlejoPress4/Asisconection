@@ -1000,12 +1000,18 @@ class InMemoryPersistenceStore
     targetType: 'POST' | 'COMMENT',
     targetId: string,
     reporterDeviceId: string,
+    reporterUserAccountId?: string | null,
   ): Promise<boolean> {
     for (const r of this.contentReports.values()) {
+      const sameReporter =
+        r.reporterDeviceId === reporterDeviceId ||
+        (reporterUserAccountId !== null &&
+          reporterUserAccountId !== undefined &&
+          r.reporterUserAccountId === reporterUserAccountId);
       if (
         r.targetType === targetType &&
         r.targetId === targetId &&
-        r.reporterDeviceId === reporterDeviceId &&
+        sameReporter &&
         r.status === 'OPEN'
       ) {
         return Promise.resolve(true);
@@ -1064,6 +1070,30 @@ class InMemoryPersistenceStore
     };
     this.contentReports.set(reportId, updated);
     return Promise.resolve(updated);
+  }
+
+  resolveOtherOpenReportsForTarget(
+    targetType: 'POST' | 'COMMENT',
+    targetId: string,
+    excludeReportId: string,
+    resolvedByUserAccountId: string | null,
+  ): Promise<void> {
+    for (const [id, report] of this.contentReports.entries()) {
+      if (
+        id !== excludeReportId &&
+        report.targetType === targetType &&
+        report.targetId === targetId &&
+        report.status === 'OPEN'
+      ) {
+        this.contentReports.set(id, {
+          ...report,
+          status: 'RESOLVED',
+          resolvedByUserAccountId,
+          resolvedAt: new Date(),
+        });
+      }
+    }
+    return Promise.resolve();
   }
 
 }
@@ -1640,5 +1670,172 @@ describe('Contract & E2E — AsisConexión MVP v2 (US1–US6, Render Auth, Actor
       .delete(`/v1/connections/${connectionId}`)
       .set('Authorization', `Bearer ${tokenB}`)
       .expect(200);
+  });
+
+  it('integra reportes de comentarios (CU-05 COMMENT) y diferencia conflictos de email/username en ambos sistemas (PEND-02)', async () => {
+    const httpServer = app.getHttpServer() as Parameters<typeof request>[0];
+
+    // 1. PEND-02: Email ya existente solo en el servicio externo (maria@prueba.com en Mock) devuelve 409 específico de correo
+    const extEmailConflict = await request(httpServer)
+      .post('/v1/auth/registro')
+      .send({
+        username: 'maria.nueva',
+        email: 'maria@prueba.com',
+        clave: 'ClaveAcudiente2026',
+        rol: 'ACUDIENTE',
+        accept_consent: true,
+      })
+      .expect(409);
+    expect((extEmailConflict.body as { detail: string }).detail).toContain('correo electrónico');
+
+    // 2. PEND-02: Email ya existente en ambos sistemas (andres@prueba.com ya registrado) devuelve 409 específico de correo
+    const bothEmailConflict = await request(httpServer)
+      .post('/v1/auth/registro')
+      .send({
+        username: 'andres.otro.nombre',
+        email: 'andres@prueba.com',
+        clave: 'ClaveVoluntario2026',
+        rol: 'VOLUNTARIO',
+        accept_consent: true,
+      })
+      .expect(409);
+    expect((bothEmailConflict.body as { detail: string }).detail).toContain('correo electrónico');
+
+    // 3. PEND-02: Username ya existente con correo nuevo devuelve 409 específico de nombre de usuario
+    const usernameConflict = await request(httpServer)
+      .post('/v1/auth/registro')
+      .send({
+        username: 'andres.voluntario',
+        email: 'nuevo.correo@prueba.com',
+        clave: 'ClaveVoluntario2026',
+        rol: 'VOLUNTARIO',
+        accept_consent: true,
+      })
+      .expect(409);
+    expect((usernameConflict.body as { detail: string }).detail).toContain('nombre de usuario');
+
+    // 4. Flujo completo de Reportes de Comentarios (target_type = COMMENT)
+    const loginAndres = await request(httpServer)
+      .post('/v1/auth/login')
+      .send({
+        email: 'andres@prueba.com',
+        clave: 'ClaveVoluntario2026',
+        accept_consent: true,
+      })
+      .expect(200);
+    const tokenAndres = (loginAndres.body as { device_token: string }).device_token;
+
+    const loginCamila = await request(httpServer)
+      .post('/v1/auth/login')
+      .send({
+        email: 'camila@prueba.com',
+        clave: 'ClaveAcudiente2026',
+        accept_consent: true,
+      })
+      .expect(200);
+    const tokenCamila = (loginCamila.body as { device_token: string }).device_token;
+
+    const adminLogin = await request(httpServer)
+      .post('/v1/auth/login')
+      .send({
+        email: 'admin@asisco.org',
+        clave: 'ClaveAsisco2026',
+        accept_consent: true,
+      })
+      .expect(200);
+    const adminToken = (adminLogin.body as { device_token: string }).device_token;
+
+    const postRes = await request(httpServer)
+      .post('/v1/posts')
+      .set('Authorization', `Bearer ${tokenAndres}`)
+      .send({
+        category_id: '11111111-1111-4111-8111-111111111111',
+        content: 'Publicación para probar reportes de comentarios.',
+      })
+      .expect(201);
+    const postId = (postRes.body as { id: string }).id;
+
+    const commentRes = await request(httpServer)
+      .post(`/v1/posts/${postId}/comments`)
+      .set('Authorization', `Bearer ${tokenAndres}`)
+      .send({ content: 'Comentario a reportar desde la comunidad.' })
+      .expect(201);
+    const commentId = (commentRes.body as { id: string }).id;
+
+    // Camila reporta el comentario
+    const reportCommentRes = await request(httpServer)
+      .post('/v1/reports')
+      .set('Authorization', `Bearer ${tokenCamila}`)
+      .send({
+        target_type: 'COMMENT',
+        target_id: commentId,
+        reason: 'HARASSMENT',
+        details: 'Trato irrespetuoso en el hilo.',
+      })
+      .expect(201);
+    const commentReportId = (
+      reportCommentRes.body as { id: string; target_type: string; target_content_preview: string }
+    ).id;
+    expect((reportCommentRes.body as { target_type: string }).target_type).toBe('COMMENT');
+    expect(
+      (reportCommentRes.body as { target_content_preview: string }).target_content_preview,
+    ).toContain('Comentario a reportar');
+
+    // Segundo reporte de Camila (incluso desde otra sesión/dispositivo) devuelve 409 Conflict
+    const secondLoginCamila = await request(httpServer)
+      .post('/v1/auth/login')
+      .send({
+        email: 'camila@prueba.com',
+        clave: 'ClaveAcudiente2026',
+        accept_consent: true,
+      })
+      .expect(200);
+    const secondTokenCamila = (secondLoginCamila.body as { device_token: string }).device_token;
+
+    await request(httpServer)
+      .post('/v1/reports')
+      .set('Authorization', `Bearer ${secondTokenCamila}`)
+      .send({
+        target_type: 'COMMENT',
+        target_id: commentId,
+        reason: 'HARASSMENT',
+      })
+      .expect(409);
+
+    // Un segundo usuario (Andrés) también reporta el mismo comentario para probar cierre de reportes hermanos
+    const siblingReportRes = await request(httpServer)
+      .post('/v1/reports')
+      .set('Authorization', `Bearer ${tokenAndres}`)
+      .send({
+        target_type: 'COMMENT',
+        target_id: commentId,
+        reason: 'INAPPROPRIATE_CONTENT',
+      })
+      .expect(201);
+    const siblingReportId = (siblingReportRes.body as { id: string }).id;
+
+    // El ADMIN resuelve el primer reporte con reject_target = true -> retira el comentario y cierra el reporte hermano
+    await request(httpServer)
+      .patch(`/v1/admin/moderation/reports/${commentReportId}/resolve`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ status: 'RESOLVED', reject_target: true })
+      .expect(200);
+
+    // El comentario ya no aparece en GET /v1/posts/:postId/comments
+    const commentsAfterRes = await request(httpServer)
+      .get(`/v1/posts/${postId}/comments?page=1&limit=20`)
+      .expect(200);
+    expect((commentsAfterRes.body as { data: Array<{ id: string }> }).data).toHaveLength(0);
+
+    // Tampoco quedan reportes OPEN sobre ese comentario (el reporte hermano se cerró automáticamente)
+    const openReportsAfterRes = await request(httpServer)
+      .get('/v1/admin/moderation/reports?status=OPEN')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    const openIds = (openReportsAfterRes.body as { data: Array<{ id: string }> }).data.map(
+      (r) => r.id,
+    );
+    expect(openIds).not.toContain(commentReportId);
+    expect(openIds).not.toContain(siblingReportId);
   });
 });

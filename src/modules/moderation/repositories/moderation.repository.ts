@@ -539,6 +539,7 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
     targetType: ContentReportTargetType,
     targetId: string,
     reporterDeviceId: string,
+    reporterUserAccountId?: string | null,
   ): Promise<boolean> {
     const column = targetType === 'POST' ? 'post_id' : 'comment_id';
     const rows = await this.dataSource.query<RawCountRow[]>(
@@ -547,10 +548,13 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
         FROM content_reports
         WHERE target_type = $1
           AND ${column} = $2::uuid
-          AND reporter_device_id = $3::uuid
+          AND (
+            reporter_device_id = $3::uuid
+            OR ($4::uuid IS NOT NULL AND reporter_user_account_id = $4::uuid)
+          )
           AND status = 'OPEN'
       `,
-      [targetType, targetId, reporterDeviceId],
+      [targetType, targetId, reporterDeviceId, reporterUserAccountId ?? null],
     );
     return Number(rows[0]?.total ?? 0) > 0;
   }
@@ -560,18 +564,26 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
     const commentId = input.targetType === 'COMMENT' ? input.targetId : null;
     const rows = await this.dataSource.query<RawContentReportRow[]>(
       `
-        INSERT INTO content_reports (
-          target_type,
-          post_id,
-          comment_id,
-          reporter_device_id,
-          reporter_user_account_id,
-          reason,
-          details,
-          status
+        WITH inserted AS (
+          INSERT INTO content_reports (
+            target_type,
+            post_id,
+            comment_id,
+            reporter_device_id,
+            reporter_user_account_id,
+            reason,
+            details,
+            status
+          )
+          VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, 'OPEN')
+          RETURNING *
         )
-        VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, 'OPEN')
-        RETURNING *
+        SELECT
+          cr.*,
+          SUBSTRING(COALESCE(p.content, c.content) FROM 1 FOR 140) AS target_content_preview
+        FROM inserted cr
+        LEFT JOIN posts p ON p.id = cr.post_id
+        LEFT JOIN comments c ON c.id = cr.comment_id
       `,
       [
         input.targetType,
@@ -636,13 +648,21 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
   ): Promise<ContentReportRecord | null> {
     const rows = await this.dataSource.query<RawContentReportRow[]>(
       `
-        UPDATE content_reports
-        SET
-          status = $2,
-          resolved_by_user_account_id = $3::uuid,
-          resolved_at = now()
-        WHERE id = $1::uuid
-        RETURNING *
+        WITH updated AS (
+          UPDATE content_reports
+          SET
+            status = $2,
+            resolved_by_user_account_id = $3::uuid,
+            resolved_at = now()
+          WHERE id = $1::uuid
+          RETURNING *
+        )
+        SELECT
+          cr.*,
+          SUBSTRING(COALESCE(p.content, c.content) FROM 1 FOR 140) AS target_content_preview
+        FROM updated cr
+        LEFT JOIN posts p ON p.id = cr.post_id
+        LEFT JOIN comments c ON c.id = cr.comment_id
       `,
       [reportId, status, resolvedByUserAccountId],
     );
@@ -653,5 +673,28 @@ export class ModerationRepository implements IModerationRepository, OnModuleInit
     }
 
     return mapRawContentReportRow(row);
+  }
+
+  async resolveOtherOpenReportsForTarget(
+    targetType: ContentReportTargetType,
+    targetId: string,
+    excludeReportId: string,
+    resolvedByUserAccountId: string | null,
+  ): Promise<void> {
+    const column = targetType === 'POST' ? 'post_id' : 'comment_id';
+    await this.dataSource.query(
+      `
+        UPDATE content_reports
+        SET
+          status = 'RESOLVED',
+          resolved_by_user_account_id = $4::uuid,
+          resolved_at = now()
+        WHERE target_type = $1
+          AND ${column} = $2::uuid
+          AND id <> $3::uuid
+          AND status = 'OPEN'
+      `,
+      [targetType, targetId, excludeReportId, resolvedByUserAccountId],
+    );
   }
 }

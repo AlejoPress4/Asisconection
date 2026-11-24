@@ -63,12 +63,14 @@ export class ExternalAuthMockAdapter implements IExternalAuthAdapter {
     const normalizedEmail = payload.email.trim().toLowerCase();
 
     for (const existing of this.users.values()) {
-      if (
-        existing.username.toLowerCase() === normalizedUsername ||
-        existing.email.toLowerCase() === normalizedEmail
-      ) {
+      if (existing.email.toLowerCase() === normalizedEmail) {
         throw new ConflictException(
-          'El username o email ya se encuentra registrado en el ecosistema fundacional.',
+          'Ya existe una cuenta registrada con este correo electrónico en el ecosistema de la Fundación. Inicia sesión con tu cuenta existente.',
+        );
+      }
+      if (existing.username.toLowerCase() === normalizedUsername) {
+        throw new ConflictException(
+          'El nombre de usuario ya está registrado en el ecosistema de la Fundación. Elige otro nombre de usuario.',
         );
       }
     }

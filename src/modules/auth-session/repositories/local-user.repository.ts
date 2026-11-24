@@ -23,7 +23,38 @@ export class LocalUserRepository implements IUserSyncRepository {
     username: string,
     email: string,
   ): Promise<UserAccount | null> {
-    return this.findAccountWithManager(this.dataSource.manager, externalUserId, username, email);
+    const userRepo = this.dataSource.manager.getRepository(UserAccount);
+
+    if (externalUserId !== null && externalUserId !== undefined) {
+      const byExternal = await userRepo.findOne({ where: { externalUserId } });
+      if (byExternal) {
+        return byExternal;
+      }
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    if (normalizedEmail) {
+      const byEmail = await userRepo
+        .createQueryBuilder('u')
+        .where('LOWER(u.email) = :normalizedEmail', { normalizedEmail })
+        .getOne();
+      if (byEmail) {
+        return byEmail;
+      }
+    }
+
+    const normalizedUsername = username.trim().toLowerCase();
+    if (normalizedUsername) {
+      const byUsername = await userRepo
+        .createQueryBuilder('u')
+        .where('LOWER(u.username) = :normalizedUsername', { normalizedUsername })
+        .getOne();
+      if (byUsername) {
+        return byUsername;
+      }
+    }
+
+    return null;
   }
 
   async upsertUserAndSession(
@@ -229,8 +260,18 @@ export class LocalUserRepository implements IUserSyncRepository {
     }
 
     if (isNewRegistration) {
+      if (byEmail) {
+        throw new ConflictException(
+          'Ya existe una cuenta registrada con este correo electrónico. Inicia sesión con tu cuenta existente.',
+        );
+      }
+      if (byUsername) {
+        throw new ConflictException(
+          'El nombre de usuario ya está en uso en AsisConexión. Elige otro nombre de usuario.',
+        );
+      }
       throw new ConflictException(
-        'El username o email ya se encuentra registrado en AsisConexión.',
+        'Ya existe una cuenta registrada con estos datos. Inicia sesión con tu cuenta existente.',
       );
     }
 
