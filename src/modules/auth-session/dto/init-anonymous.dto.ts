@@ -1,22 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { Equals, IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Equals, IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 import { preserveRawConsentValue } from '../../../common/utils/strict-boolean.util';
-
-export const ALLOWED_ANONYMOUS_ROLE_TAGS = [
-  'VISITANTE',
-  'ACUDIENTE',
-  'VOLUNTARIO',
-  'INVERSOR',
-  'BENEFICIARIO',
-] as const;
 
 export class InitAnonymousSessionDto {
   @ApiPropertyOptional({
     maxLength: 50,
-    example: 'Colibrí Alegre',
-    description:
-      'Apodo opcional. Si se omite o es genérico, el servidor genera un apodo familiar aleatorio.',
+    example: 'MamáDeMateo',
   })
   @IsOptional()
   @IsString()
@@ -25,20 +15,11 @@ export class InitAnonymousSessionDto {
 
   @ApiPropertyOptional({
     maxLength: 40,
-    enum: ALLOWED_ANONYMOUS_ROLE_TAGS,
-    example: 'VISITANTE',
-    description: 'Etiqueta comunitaria de la sesión anónima (por defecto VISITANTE).',
+    example: 'ACUDIENTE',
   })
   @IsOptional()
-  @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.trim().toUpperCase() : value,
-  )
   @IsString()
   @MaxLength(40)
-  @IsIn(ALLOWED_ANONYMOUS_ROLE_TAGS, {
-    message:
-      'role_tag debe ser una etiqueta comunitaria permitida (VISITANTE, ACUDIENTE, VOLUNTARIO, INVERSOR o BENEFICIARIO).',
-  })
   role_tag?: string;
 
   @ApiProperty({

@@ -380,13 +380,11 @@ components:
         nickname:
           type: string
           maxLength: 50
-          example: Colibrí Alegre
-          description: Apodo opcional; si se omite o es genérico, el servidor genera un apodo familiar aleatorio.
+          example: MamáDeMateo
         role_tag:
           type: string
           maxLength: 40
-          enum: [VISITANTE, ACUDIENTE, VOLUNTARIO, INVERSOR, BENEFICIARIO]
-          example: VISITANTE
+          example: ACUDIENTE
         accept_consent:
           type: boolean
           const: true
@@ -394,35 +392,13 @@ components:
 
     AnonymousSessionResponseDto:
       type: object
-      required: [device_token, session_id, nickname, role_tag]
+      required: [device_token, session_id]
       properties:
         device_token:
           type: string
-          description: JWT con expiración de 24 horas para sesiones anónimas.
         session_id:
           type: string
           format: uuid
-        nickname:
-          type: string
-          example: Colibrí Alegre
-        role_tag:
-          type: string
-          example: VISITANTE
-
-    LogoutSessionResponseDto:
-      type: object
-      required: [logged_out, session_id, purged]
-      properties:
-        logged_out:
-          type: boolean
-          example: true
-        session_id:
-          type: string
-          format: uuid
-        purged:
-          type: boolean
-          example: true
-          description: true si la sesión anónima sin interacciones fue eliminada físicamente; false si fue revocada preservando historial.
 
     CurrentSessionResponseDto:
       type: object
@@ -1509,7 +1485,7 @@ paths:
   /v1/sessions/anonymous:
     post:
       tags: [AuthSession]
-      summary: Inicia sesión rápida por dispositivo (TTL 24h) con apodo familiar aleatorio y rol VISITANTE
+      summary: Inicia sesión rápida por dispositivo sin registro de cuenta completa
       requestBody:
         required: true
         content:
@@ -1518,33 +1494,13 @@ paths:
               $ref: '#/components/schemas/InitAnonymousSessionDto'
       responses:
         '201':
-          description: DeviceSession anónima creada con trazabilidad de consentimiento y apodo familiar
+          description: DeviceSession anónima creada con trazabilidad de consentimiento
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnonymousSessionResponseDto'
         '400':
           description: Consentimiento Ley 1581 no aceptado o payload inválido
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-
-  /v1/sessions/logout:
-    post:
-      tags: [AuthSession]
-      summary: Cierra la DeviceSession actual (purga sesiones anónimas sin actividad o revoca el token preservando trazabilidad)
-      security:
-        - DeviceSessionBearer: []
-      responses:
-        '200':
-          description: Sesión cerrada y token revocado o eliminado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LogoutSessionResponseDto'
-        '401':
-          description: DeviceSession ausente, inválida o expirada
           content:
             application/problem+json:
               schema:

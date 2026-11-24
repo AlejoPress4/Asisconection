@@ -37,25 +37,4 @@ export class AnonymousSessionResponseDto {
 
   @ApiProperty({ format: 'uuid' })
   session_id!: string;
-
-  @ApiProperty({ example: 'Colibrí Alegre' })
-  nickname!: string;
-
-  @ApiProperty({ example: 'VISITANTE' })
-  role_tag!: string;
-}
-
-export class LogoutSessionResponseDto {
-  @ApiProperty({ example: true })
-  logged_out!: boolean;
-
-  @ApiProperty({ format: 'uuid' })
-  session_id!: string;
-
-  @ApiProperty({
-    example: true,
-    description:
-      'Indica si la sesión anónima sin interacciones fue eliminada físicamente de device_sessions; false si se revocó preservando el historial.',
-  })
-  purged!: boolean;
 }

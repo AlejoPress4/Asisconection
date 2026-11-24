@@ -25,19 +25,11 @@ export interface CreateAnonymousSessionInput {
   readonly signSessionToken: (params: IssueSessionTokenParams) => string;
 }
 
-export interface RevokeOrDeleteSessionResult {
-  readonly purged: boolean;
-}
-
 export interface IUserSyncRepository {
   upsertUserAndSession(
     input: SyncUserSessionInput,
   ): Promise<{ user: UserAccount; actor: Actor; session: DeviceSession }>;
   createAnonymousSession(input: CreateAnonymousSessionInput): Promise<DeviceSession>;
-  revokeOrDeleteSession(
-    sessionId: string,
-    isAnonymous: boolean,
-  ): Promise<RevokeOrDeleteSessionResult>;
   findByIdentity(
     externalUserId: number | null,
     username: string,
