@@ -84,14 +84,36 @@ export interface AuthorSourceFields {
   readonly roleTag: string | null;
 }
 
+function isSwaggerPlaceholderName(fullName: string, username?: string | null): boolean {
+  const normalizedName = fullName
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+  if (normalizedName !== 'maria gomez') {
+    return false;
+  }
+  const normalizedUsername = (username ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+  return normalizedUsername.length > 0 && !normalizedUsername.startsWith('maria');
+}
+
 export function buildAuthorBadge(source: AuthorSourceFields): AuthorBadgeDto {
   const fullName = [source.firstNames?.trim(), source.lastNames?.trim()]
     .filter((part): part is string => Boolean(part && part.length > 0))
     .join(' ')
     .trim();
 
+  const resolvedFullName =
+    fullName.length > 0 && !isSwaggerPlaceholderName(fullName, source.username) ? fullName : '';
+
   const displayName =
-    fullName.length > 0 ? fullName : (source.username ?? source.nickname ?? 'Participante');
+    resolvedFullName.length > 0
+      ? resolvedFullName
+      : (source.username ?? source.nickname ?? 'Participante');
 
   let roleLabel = source.primaryRole ?? source.rol ?? source.roleTag ?? 'VISITANTE';
   if (source.rol === 'ADMIN') {
