@@ -251,7 +251,20 @@ export class LocalUserRepository implements IUserSyncRepository {
           .getOne()
       : null;
 
-    const matches = [byExternal, byUsername, byEmail].filter(
+    // If externalUserId matches a local row with a completely different email AND username,
+    // the central identity DB reused/reset its sequential ID. Detach the stale externalUserId
+    // so we neither block new registrations with a false 409 nor overwrite another user's account.
+    let validByExternal = byExternal;
+    if (
+      byExternal &&
+      byExternal.email.trim().toLowerCase() !== normalizedEmail &&
+      byExternal.username.trim().toLowerCase() !== normalizedUsername
+    ) {
+      await userRepo.update({ id: byExternal.id }, { externalUserId: null });
+      validByExternal = null;
+    }
+
+    const matches = [validByExternal, byUsername, byEmail].filter(
       (candidate): candidate is UserAccount => candidate !== null,
     );
 
