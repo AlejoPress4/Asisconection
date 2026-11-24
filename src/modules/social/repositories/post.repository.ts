@@ -162,8 +162,7 @@ export class PostRepository implements IPostRepository, OnModuleInit {
             FROM actor_connections ac
             INNER JOIN actors my_actor ON my_actor.user_account_id = :followerUserAccountId
             INNER JOIN actors target_actor ON (
-              (ac.requester_actor_id = my_actor.id AND target_actor.id = ac.receiver_actor_id)
-              OR (ac.receiver_actor_id = my_actor.id AND target_actor.id = ac.requester_actor_id)
+              ac.requester_actor_id = my_actor.id AND target_actor.id = ac.receiver_actor_id
             )
             WHERE ac.status = 'ACCEPTED'
           )
