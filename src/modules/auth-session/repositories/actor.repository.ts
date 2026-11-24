@@ -224,7 +224,7 @@ export class ActorRepository implements IActorRepository, OnModuleInit {
     }
 
     const [items, total] = await qb
-      .orderBy('ac.requested_at', 'DESC')
+      .orderBy('ac.requestedAt', 'DESC')
       .skip(skip)
       .take(take)
       .getManyAndCount();
@@ -287,7 +287,7 @@ export class ActorRepository implements IActorRepository, OnModuleInit {
     }
 
     const [items, total] = await qb
-      .orderBy('a.created_at', 'DESC')
+      .orderBy('a.createdAt', 'DESC')
       .skip(filter.skip)
       .take(filter.take)
       .getManyAndCount();
@@ -308,7 +308,7 @@ export class ActorRepository implements IActorRepository, OnModuleInit {
         actorId,
         status: 'ACCEPTED',
       })
-      .orderBy('ac.accepted_at', 'DESC')
+      .orderBy('ac.acceptedAt', 'DESC')
       .skip(skip)
       .take(take)
       .getManyAndCount();
@@ -334,7 +334,7 @@ export class ActorRepository implements IActorRepository, OnModuleInit {
         actorId,
         status: 'ACCEPTED',
       })
-      .orderBy('ac.accepted_at', 'DESC')
+      .orderBy('ac.acceptedAt', 'DESC')
       .skip(skip)
       .take(take)
       .getManyAndCount();
