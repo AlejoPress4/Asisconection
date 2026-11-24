@@ -19,6 +19,7 @@ import { AuthSessionService } from './auth-session.service';
 import {
   AnonymousSessionResponseDto,
   AuthSessionResponseDto,
+  LogoutSessionResponseDto,
 } from './dto/auth-session-response.dto';
 import { CurrentSessionResponseDto } from './dto/current-session-response.dto';
 import { InitAnonymousSessionDto } from './dto/init-anonymous.dto';
@@ -118,10 +119,11 @@ export class AuthSessionController {
 
   @Post('sessions/anonymous')
   @ApiOperation({
-    summary: 'Inicia sesión rápida por dispositivo sin registro de cuenta ni perfil Actor',
+    summary:
+      'Inicia sesión rápida por dispositivo (TTL 24h) con apodo familiar aleatorio y rol VISITANTE',
   })
   @ApiCreatedResponse({
-    description: 'DeviceSession anónima creada con trazabilidad de consentimiento',
+    description: 'DeviceSession anónima creada con trazabilidad de consentimiento y apodo familiar',
     type: AnonymousSessionResponseDto,
   })
   @ApiBadRequestResponse({
@@ -132,6 +134,26 @@ export class AuthSessionController {
     @Body() dto: InitAnonymousSessionDto,
   ): Promise<AnonymousSessionResponseDto> {
     return this.authSessionService.initAnonymous(dto);
+  }
+
+  @Post('sessions/logout')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(DeviceSessionGuard)
+  @ApiBearerAuth('DeviceSessionBearer')
+  @ApiOperation({
+    summary:
+      'Cierra la DeviceSession actual: elimina sesiones anónimas sin interacciones o revoca el token preservando trazabilidad',
+  })
+  @ApiOkResponse({
+    description: 'Sesión cerrada y token revocado o eliminado en ASISCONEXION_DB',
+    type: LogoutSessionResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'DeviceSession ausente, inválida o expirada',
+    type: ProblemDetailsDto,
+  })
+  async logout(@CurrentSession() session: SessionContext): Promise<LogoutSessionResponseDto> {
+    return this.authSessionService.logout(session);
   }
 
   @Get('sessions/me')

@@ -15,18 +15,26 @@ function isDeviceSessionJwtPayload(value: unknown): value is DeviceSessionJwtPay
   return subValid && uidValid && roleValid && typValid;
 }
 
+export const ANONYMOUS_SESSION_TTL_SECONDS = 24 * 60 * 60;
+
 @Injectable()
 export class SessionTokenService {
   constructor(private readonly jwtService: JwtService) {}
 
   sign(payload: DeviceSessionJwtPayload): string {
-    return this.jwtService.sign({
+    const tokenPayload = {
       sub: payload.sub,
       uid: payload.uid,
       role: payload.role,
       typ: payload.typ,
       jti: randomUUID(),
-    });
+    };
+    if (payload.uid === null) {
+      return this.jwtService.sign(tokenPayload, {
+        expiresIn: ANONYMOUS_SESSION_TTL_SECONDS,
+      });
+    }
+    return this.jwtService.sign(tokenPayload);
   }
 
   verify(token: string): DeviceSessionJwtPayload {

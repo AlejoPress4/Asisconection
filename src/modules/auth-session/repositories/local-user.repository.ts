@@ -8,6 +8,7 @@ import { UserAccount } from '../entities/user-account.entity';
 import type {
   CreateAnonymousSessionInput,
   IUserSyncRepository,
+  RevokeOrDeleteSessionResult,
   SyncUserSessionInput,
 } from '../interfaces/i-local-user.repository';
 
@@ -201,12 +202,12 @@ export class LocalUserRepository implements IUserSyncRepository {
     const sessionRepo = this.dataSource.getRepository(DeviceSession);
     const sessionId = randomUUID();
     const normalizedNickname = input.nickname?.trim() ? input.nickname.trim() : null;
-    const normalizedRoleTag = input.roleTag?.trim() ? input.roleTag.trim() : null;
+    const normalizedRoleTag = input.roleTag?.trim() ? input.roleTag.trim().toUpperCase() : 'VISITANTE';
 
     const deviceToken = input.signSessionToken({
       sessionId,
       userAccountId: null,
-      role: normalizedRoleTag ?? 'VISITANTE',
+      role: normalizedRoleTag,
     });
 
     const session = sessionRepo.create({
@@ -218,7 +219,83 @@ export class LocalUserRepository implements IUserSyncRepository {
       consentAcceptedAt: new Date(),
     });
 
-    return sessionRepo.save(session);
+    const saved = await sessionRepo.save(session);
+    await this.purgeExpiredInactiveAnonymousSessions();
+    return saved;
+  }
+
+  async revokeOrDeleteSession(
+    sessionId: string,
+    isAnonymous: boolean,
+  ): Promise<RevokeOrDeleteSessionResult> {
+    if (isAnonymous) {
+      const hasInteractions = await this.sessionHasInteractions(sessionId);
+      if (!hasInteractions) {
+        const result = await this.dataSource.manager.query<unknown[]>(
+          `DELETE FROM device_sessions WHERE id = $1::uuid AND user_account_id IS NULL RETURNING id`,
+          [sessionId],
+        );
+        if (Array.isArray(result) && result.length > 0) {
+          return { purged: true };
+        }
+      }
+    }
+
+    await this.dataSource.manager.query(
+      `UPDATE device_sessions SET device_token = $2 WHERE id = $1::uuid`,
+      [sessionId, `REVOKED:${sessionId}`],
+    );
+    return { purged: false };
+  }
+
+  private async sessionHasInteractions(sessionId: string): Promise<boolean> {
+    const coreRows = await this.dataSource.manager.query<Array<{ has_any: boolean }>>(
+      `SELECT (
+         EXISTS (SELECT 1 FROM posts WHERE device_id = $1::uuid)
+         OR EXISTS (SELECT 1 FROM comments WHERE device_id = $1::uuid)
+         OR EXISTS (SELECT 1 FROM reactions WHERE device_id = $1::uuid)
+         OR EXISTS (SELECT 1 FROM comment_reactions WHERE device_id = $1::uuid)
+       ) AS has_any`,
+      [sessionId],
+    );
+    if (coreRows[0]?.has_any === true) {
+      return true;
+    }
+
+    try {
+      const reportRows = await this.dataSource.manager.query<Array<{ has_any: boolean }>>(
+        `SELECT EXISTS (SELECT 1 FROM content_reports WHERE reporter_device_id = $1::uuid) AS has_any`,
+        [sessionId],
+      );
+      return reportRows[0]?.has_any === true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async purgeExpiredInactiveAnonymousSessions(): Promise<void> {
+    try {
+      const tableCheck = await this.dataSource.manager.query<Array<{ has_reports: string | null }>>(
+        `SELECT to_regclass('public.content_reports')::text AS has_reports`,
+      );
+      const hasReportsTable = Boolean(tableCheck[0]?.has_reports);
+      const reportsPredicate = hasReportsTable
+        ? `AND NOT EXISTS (SELECT 1 FROM content_reports crp WHERE crp.reporter_device_id = ds.id)`
+        : '';
+
+      await this.dataSource.manager.query(
+        `DELETE FROM device_sessions ds
+         WHERE ds.user_account_id IS NULL
+           AND ds.created_at < NOW() - INTERVAL '24 hours'
+           AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.device_id = ds.id)
+           AND NOT EXISTS (SELECT 1 FROM comments c WHERE c.device_id = ds.id)
+           AND NOT EXISTS (SELECT 1 FROM reactions r WHERE r.device_id = ds.id)
+           AND NOT EXISTS (SELECT 1 FROM comment_reactions cr WHERE cr.device_id = ds.id)
+           ${reportsPredicate}`,
+      );
+    } catch {
+      // Best-effort cleanup must never block anonymous session creation.
+    }
   }
 
   private async findAccountWithManager(

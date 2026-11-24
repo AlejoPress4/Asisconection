@@ -10,6 +10,7 @@ import { SessionTokenService } from '../../common/auth/session-token.service';
 import type {
   AnonymousSessionResponseDto,
   AuthSessionResponseDto,
+  LogoutSessionResponseDto,
 } from './dto/auth-session-response.dto';
 import type { InitAnonymousSessionDto } from './dto/init-anonymous.dto';
 import {
@@ -26,6 +27,7 @@ import {
   EXTERNAL_AUTH_ADAPTER,
   type IExternalAuthAdapter,
 } from './interfaces/i-render-auth.adapter';
+import { resolveAnonymousNickname } from './utils/anonymous-nickname.util';
 
 @Injectable()
 export class AuthSessionService {
@@ -173,9 +175,12 @@ export class AuthSessionService {
   }
 
   async initAnonymous(dto: InitAnonymousSessionDto): Promise<AnonymousSessionResponseDto> {
+    const nickname = resolveAnonymousNickname(dto.nickname);
+    const roleTag = dto.role_tag?.trim().toUpperCase() || 'VISITANTE';
+
     const session = await this.userSyncRepository.createAnonymousSession({
-      nickname: dto.nickname,
-      roleTag: dto.role_tag,
+      nickname,
+      roleTag,
       signSessionToken: ({ sessionId, userAccountId, role }) =>
         this.sessionTokenService.sign({
           sub: sessionId,
@@ -188,6 +193,22 @@ export class AuthSessionService {
     return {
       device_token: session.deviceToken,
       session_id: session.id,
+      nickname: session.nickname ?? nickname,
+      role_tag: session.roleTag ?? roleTag,
+    };
+  }
+
+  async logout(session: SessionContext): Promise<LogoutSessionResponseDto> {
+    const isAnonymous = session.userAccountId === null;
+    const { purged } = await this.userSyncRepository.revokeOrDeleteSession(
+      session.sessionId,
+      isAnonymous,
+    );
+
+    return {
+      logged_out: true,
+      session_id: session.sessionId,
+      purged,
     };
   }
 

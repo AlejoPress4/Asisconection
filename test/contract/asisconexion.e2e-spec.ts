@@ -404,11 +404,11 @@ class InMemoryPersistenceStore
 
   createAnonymousSession(input: CreateAnonymousSessionInput): Promise<DeviceSession> {
     const sessionId = randomUUID();
-    const roleTag = input.roleTag ?? null;
+    const roleTag = input.roleTag?.trim().toUpperCase() || 'VISITANTE';
     const deviceToken = input.signSessionToken({
       sessionId,
       userAccountId: null,
-      role: roleTag ?? 'VISITANTE',
+      role: roleTag,
     });
     const session: DeviceSession = {
       id: sessionId,
@@ -421,6 +421,33 @@ class InMemoryPersistenceStore
     };
     this.sessions.set(session.id, session);
     return Promise.resolve(session);
+  }
+
+  revokeOrDeleteSession(sessionId: string, isAnonymous: boolean): Promise<{ purged: boolean }> {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return Promise.resolve({ purged: false });
+    }
+    const hasPost = Array.from(this.posts.values()).some((p) => p.deviceId === sessionId);
+    const hasComment = Array.from(this.comments.values()).some((c) => c.deviceId === sessionId);
+    const hasReaction = Array.from(this.reactions).some((key) => key.endsWith(`:${sessionId}`));
+    const hasCommentReaction = Array.from(this.commentReactions).some((key) =>
+      key.endsWith(`:${sessionId}`),
+    );
+    const hasReport = Array.from(this.contentReports.values()).some(
+      (r) => r.reporterDeviceId === sessionId,
+    );
+
+    if (isAnonymous && !hasPost && !hasComment && !hasReaction && !hasCommentReaction && !hasReport) {
+      this.sessions.delete(sessionId);
+      return Promise.resolve({ purged: true });
+    }
+
+    this.sessions.set(sessionId, {
+      ...session,
+      deviceToken: `REVOKED:${sessionId}`,
+    });
+    return Promise.resolve({ purged: false });
   }
 
   findSessionContext(sessionId: string, token: string): Promise<SessionContext | null> {
@@ -1837,5 +1864,105 @@ describe('Contract & E2E — AsisConexión MVP v2 (US1–US6, Render Auth, Actor
     );
     expect(openIds).not.toContain(commentReportId);
     expect(openIds).not.toContain(siblingReportId);
+  });
+
+  it('Sesión anónima volátil: apodo familiar aleatorio, rol VISITANTE, TTL 24h y logout con purga o revocación', async () => {
+    const httpServer = app.getHttpServer() as Parameters<typeof request>[0];
+
+    // 1. Bloquea role_tag privilegiado en sesión anónima
+    await request(httpServer)
+      .post('/v1/sessions/anonymous')
+      .send({ role_tag: 'ADMIN', accept_consent: true })
+      .expect(400);
+
+    // 2. Sesión anónima sin nickname ni role_tag genera apodo familiar + VISITANTE + TTL 24h
+    const idleAnonRes = await request(httpServer)
+      .post('/v1/sessions/anonymous')
+      .send({ accept_consent: true })
+      .expect(201);
+    const idleBody = idleAnonRes.body as {
+      device_token: string;
+      session_id: string;
+      nickname: string;
+      role_tag: string;
+    };
+    expect(idleBody.role_tag).toBe('VISITANTE');
+    expect(idleBody.nickname.split(' ')).toHaveLength(2);
+
+    const payloadBase64 = idleBody.device_token.split('.')[1]!;
+    const jwtClaims = JSON.parse(Buffer.from(payloadBase64, 'base64url').toString('utf8')) as {
+      iat: number;
+      exp: number;
+      uid: string | null;
+      role: string;
+    };
+    expect(jwtClaims.uid).toBeNull();
+    expect(jwtClaims.role).toBe('VISITANTE');
+    expect(jwtClaims.exp - jwtClaims.iat).toBe(86400);
+
+    // 3. Logout de sesión anónima sin actividad -> purga física y 401 posterior
+    const idleLogoutRes = await request(httpServer)
+      .post('/v1/sessions/logout')
+      .set('Authorization', `Bearer ${idleBody.device_token}`)
+      .expect(200);
+    expect(idleLogoutRes.body).toEqual({
+      logged_out: true,
+      session_id: idleBody.session_id,
+      purged: true,
+    });
+
+    await request(httpServer)
+      .get('/v1/sessions/me')
+      .set('Authorization', `Bearer ${idleBody.device_token}`)
+      .expect(401);
+
+    // 4. Sesión anónima que publica -> logout revoca token (purged: false) y preserva el post
+    const activeAnonRes = await request(httpServer)
+      .post('/v1/sessions/anonymous')
+      .send({ nickname: 'Invitado', accept_consent: true })
+      .expect(201);
+    const activeBody = activeAnonRes.body as {
+      device_token: string;
+      session_id: string;
+      nickname: string;
+      role_tag: string;
+    };
+    expect(activeBody.nickname.toLowerCase()).not.toBe('invitado');
+    expect(activeBody.role_tag).toBe('VISITANTE');
+
+    const createdPostRes = await request(httpServer)
+      .post('/v1/posts')
+      .set('Authorization', `Bearer ${activeBody.device_token}`)
+      .send({
+        category_id: '11111111-1111-4111-8111-111111111111',
+        content: 'Un saludo muy especial desde una sesión anónima familiar.',
+      })
+      .expect(201);
+    const anonPostId = (createdPostRes.body as { id: string }).id;
+
+    const activeLogoutRes = await request(httpServer)
+      .post('/v1/sessions/logout')
+      .set('Authorization', `Bearer ${activeBody.device_token}`)
+      .expect(200);
+    expect(activeLogoutRes.body).toEqual({
+      logged_out: true,
+      session_id: activeBody.session_id,
+      purged: false,
+    });
+
+    await request(httpServer)
+      .get('/v1/sessions/me')
+      .set('Authorization', `Bearer ${activeBody.device_token}`)
+      .expect(401);
+
+    const feedRes = await request(httpServer).get('/v1/posts?page=1&limit=50').expect(200);
+    const matchingPost = (
+      feedRes.body as {
+        data: Array<{ id: string; author: { display_name: string; role_label: string } }>;
+      }
+    ).data.find((p) => p.id === anonPostId);
+    expect(matchingPost).toBeDefined();
+    expect(matchingPost?.author.display_name).toBe(activeBody.nickname);
+    expect(matchingPost?.author.role_label).toBe('VISITANTE');
   });
 });
